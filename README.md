@@ -192,3 +192,29 @@ vertical drop-cutter height. These operations approximate surfaces on finite
 grids and are not certified gouge detection or production CNC verification.
 The helpers are library APIs and are not yet connected to the DXF UI or machine
 simulation.
+
+### Production CAM development and assurance
+
+Future production-oriented geometry and verification work should preserve a
+usable CPU reference path and make accelerated or external backends optional.
+For B-rep support, Open CASCADE through its Python bindings (`OCP`) is a
+candidate geometry-kernel integration; GPU verification could use Vulkan
+compute with GLSL/SPIR-V or OpenCL. These are architectural candidates, not
+implemented or supported features. Backend results would need comparison
+against defined CPU reference cases and documented numeric tolerances; the
+supported geometry formats and target hardware must be stated explicitly.
+
+Production readiness requires more than adding a geometry kernel or GPU
+backend. Establish intended use and target jurisdictions, assess hazards and
+limitations, trace verification requirements to tests and evidence, validate
+each supported backend/configuration, and retain reproducible records of
+inputs, toolpaths, software and dependency versions, settings, results, and
+warnings. Failed, incomplete, or unsupported checks must not be reported as
+verified. Changes and releases need review and regression evidence.
+
+This project is not certified for production machining or as a machine safety
+system. Offline toolpath generation or simulation does not replace machine
+guarding, controller safety functions, or operator checks. Determine applicable
+standards and conformity requirements for the product's actual role, market,
+and use; standards such as ISO 12100, ISO 13849-1, or IEC 61508 may be relevant
+in particular contexts, but mentioning them does not establish compliance.
