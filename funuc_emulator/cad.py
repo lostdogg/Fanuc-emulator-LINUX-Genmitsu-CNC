@@ -157,42 +157,62 @@ def parse_dxf(source: str) -> DxfDocument:
                 number(50), number(51),
             ))
         else:
-            raw_points: List[Point] = []
-            pending_x = None
-            bulges = []
+            vertices: List[Tuple[Point, float]] = []
+            vertex_x = vertex_y = None
+            bulge = 0.0
             for code, value in data:
                 if code == 10:
-                    if pending_x is not None:
-                        raise CadError("LWPOLYLINE vertex is missing its Y coordinate")
+                    if vertex_x is not None:
+                        if vertex_y is None:
+                            raise CadError("LWPOLYLINE vertex is missing its Y coordinate")
+                        vertices.append(((vertex_x * scale, vertex_y * scale), bulge))
+                    vertex_y = None
+                    bulge = 0.0
                     try:
-                        pending_x = float(value)
+                        vertex_x = float(value)
                     except ValueError as exc:
                         raise CadError("Invalid LWPOLYLINE X coordinate") from exc
                 elif code == 20:
-                    if pending_x is None:
+                    if vertex_x is None:
                         raise CadError("LWPOLYLINE Y coordinate has no X coordinate")
                     try:
-                        y = float(value)
+                        vertex_y = float(value)
                     except ValueError as exc:
                         raise CadError("Invalid LWPOLYLINE Y coordinate") from exc
-                    raw_points.append((pending_x * scale, y * scale))
-                    pending_x = None
                 elif code == 42:
+                    if vertex_x is None or vertex_y is None:
+                        raise CadError("LWPOLYLINE vertex is missing its Y coordinate")
                     try:
-                        bulges.append(float(value))
+                        bulge = float(value)
                     except ValueError as exc:
                         raise CadError("Invalid LWPOLYLINE bulge") from exc
-            if pending_x is not None:
-                raise CadError("LWPOLYLINE vertex is missing its Y coordinate")
-            if len(raw_points) < 2:
+                    if not math.isfinite(bulge):
+                        raise CadError("LWPOLYLINE bulge must be finite")
+            if vertex_x is not None:
+                if vertex_y is None:
+                    raise CadError("LWPOLYLINE vertex is missing its Y coordinate")
+                vertices.append(((vertex_x * scale, vertex_y * scale), bulge))
+            if len(vertices) < 2:
                 raise CadError("LWPOLYLINE must contain at least two vertices")
             try:
                 flags = int(one(70, "0"))
             except ValueError as exc:
                 raise CadError("Invalid LWPOLYLINE flags") from exc
-            if any(abs(bulge) > 1e-12 for bulge in bulges):
-                raise CadError("Bulged LWPOLYLINE segments are not supported")
-            entities.append(Polyline(tuple(raw_points), bool(flags & 1)))
+            closed = bool(flags & 1)
+            raw_points: List[Point] = []
+            edge_count = len(vertices) if closed else len(vertices) - 1
+            for index, (start, bulge) in enumerate(vertices):
+                if not raw_points:
+                    raw_points.append(start)
+                if index >= edge_count:
+                    continue
+                end = vertices[(index + 1) % len(vertices)][0]
+                arc_points = _bulge_segment(start, end, bulge)
+                raw_points.extend(
+                    arc_points[:-1] if closed and index == edge_count - 1
+                    else arc_points
+                )
+            entities.append(Polyline(tuple(raw_points), closed))
 
     for code, value in pairs:
         if code == 0 and value == "SECTION":
@@ -216,6 +236,28 @@ def parse_dxf(source: str) -> DxfDocument:
     if not entities:
         raise CadError("No supported CAD entities found in DXF")
     return DxfDocument(tuple(entities), units, scale)
+
+
+def _bulge_segment(start: Point, end: Point, bulge: float) -> List[Point]:
+    """Tessellate a DXF bulge arc to a maximum angular step of 15 degrees."""
+    theta = 4 * math.atan(bulge)
+    if abs(theta) < 1e-12:
+        return [end]
+    chord = math.dist(start, end)
+    if chord < 1e-12:
+        raise CadError("LWPOLYLINE bulge has coincident endpoints")
+    radius = chord / (2 * math.sin(abs(theta) / 2))
+    offset = chord / (2 * math.tan(theta / 2))
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    center = ((start[0] + end[0]) / 2 - dy / chord * offset,
+              (start[1] + end[1]) / 2 + dx / chord * offset)
+    start_angle = math.atan2(start[1] - center[1], start[0] - center[0])
+    count = max(1, math.ceil(abs(theta) / math.radians(15)))
+    return [
+        (center[0] + radius * math.cos(start_angle + theta * i / count),
+         center[1] + radius * math.sin(start_angle + theta * i / count))
+        for i in range(1, count + 1)
+    ]
 
 
 def extract_features(document: DxfDocument, tolerance: float = 0.001) -> CadFeatures:

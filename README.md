@@ -161,3 +161,21 @@ values per element (`line angle=0`, `arc r=2 cw`, `guess=x,y`, `tangent`) and
 fields are coloured live – white *Given*, green *Calculated*, orange *Guess*,
 red *Not Calculated*. Supported: line/arc tangency, arc tangent to two lines,
 line tangent to two arcs, line/arc intersections, and chamfer/radius corners.
+
+## CAD import and stock simulation
+
+The **CAD > Import DXF as G-code…** command reads ASCII DXF `LINE`, `ARC`,
+`CIRCLE`, and `LWPOLYLINE` entities. Declared DXF units are converted to
+millimeters; polyline bulges are tessellated, closed boundaries and near-
+connected line chains become profile paths, and circles become drill positions.
+The import asks for a cut depth and feed before placing generated G-code in the
+editor. Inspect and simulate the program before use.
+
+`funuc_emulator/simulation.py` provides a deterministic CPU voxel-stock
+reference simulator for sampled end-mill paths, reporting removed stock, rapid
+contacts, and flute-length overflows. It is not a machine-verification system:
+it does not model fixtures, toolholders, machine kinematics, surface scallops,
+or interactive 3D rendering. DWG, Parasolid, NURBS, arbitrary 3D CAD/B-rep,
+entity picking, and GPU simulation are not currently supported. DXF layer
+semantics and bulged polylines' tessellated geometry should be reviewed before
+generating machine code.

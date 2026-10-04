@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Optional
 
+from .. import cad
 from ..machine import Machine
 from .canvas import ToolPathCanvas
 from .panels import CoordinatePanel, MessageLog, StatusPanel
@@ -167,6 +168,13 @@ class App(tk.Tk):
                            activebackground="#094771")
         age_menu.add_command(label="Solve Profile…", command=self._open_age)
         menubar.add_cascade(label="A.G.E.", menu=age_menu)
+
+        cad_menu = tk.Menu(menubar, tearoff=False, bg="#2d2d2d",
+                           fg="#ffffff", activebackground="#3d3d3d",
+                           activeforeground="#ffffff")
+        cad_menu.add_command(label="Import DXF as G-code…",
+                             command=self._import_dxf)
+        menubar.add_cascade(label="CAD", menu=cad_menu)
 
         help_menu = tk.Menu(menubar, tearoff=False, bg="#2d2d2d",
                             fg="#ffffff", activebackground="#3d3d3d",
@@ -343,6 +351,65 @@ class App(tk.Tk):
     def _open_age(self) -> None:
         from .age_dialog import AGEDialog
         AGEDialog(self)
+
+    def _import_dxf(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Import ASCII DXF",
+            filetypes=[("DXF files", "*.dxf"), ("All files", "*.*")],
+            parent=self,
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8", errors="strict") as fh:
+                document = cad.parse_dxf(fh.read())
+            features = cad.extract_features(document)
+        except (OSError, UnicodeError, cad.CadError) as exc:
+            messagebox.showerror("DXF Import", str(exc), parent=self)
+            return
+        if not features.holes and not features.profiles:
+            messagebox.showerror(
+                "DXF Import",
+                "No circular holes or closed planar profiles were recognized.",
+                parent=self,
+            )
+            return
+        summary = (
+            f"Units: {document.units} "
+            f"({document.unit_scale:g} mm per drawing unit)\n"
+            f"Circular holes: {len(features.holes)}\n"
+            f"Closed profiles: {len(features.profiles)}\n\n"
+            "This import only recognizes circles and closed polylines/line "
+            "chains. Confirm that drawing dimensions are millimeters after "
+            "conversion before generating code."
+        )
+        if not messagebox.askyesno("Review DXF Features", summary, parent=self):
+            return
+        depth = simpledialog.askfloat(
+            "DXF Import", "Cut depth (mm; negative):", parent=self,
+            minvalue=-100000.0, maxvalue=-0.000001,
+        )
+        if depth is None:
+            return
+        feed = simpledialog.askfloat(
+            "DXF Import", "Feed rate (mm/min):", parent=self,
+            minvalue=0.000001,
+        )
+        if feed is None:
+            return
+        program = "\n".join(cad.features_to_gcode(features, depth, feed)) + "\n"
+        if messagebox.askyesno(
+            "DXF Import", "Replace the current editor contents?\n"
+            "Choose No to append the generated program.", parent=self,
+        ):
+            self._editor.delete("1.0", "end")
+            self._editor.insert("1.0", program)
+        else:
+            self._editor.insert("end", "\n" + program)
+        self._log.log(
+            f"Imported DXF features from {path}: "
+            f"{len(features.holes)} holes, {len(features.profiles)} profiles."
+        )
 
     def _show_about(self) -> None:
         messagebox.showinfo(

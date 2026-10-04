@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Iterable, Set, Tuple
+from typing import Iterable
 
 from .machine import ToolPathSegment
-
-Voxel = Tuple[int, int, int]
-
 
 class SimulationError(ValueError):
     """Raised for invalid stock or tool simulation parameters."""
@@ -24,7 +21,7 @@ class SimulationResult:
 
 
 class VoxelStock:
-    """Sparse voxel stock with sampled cylindrical end-mill subtraction.
+    """Dense byte-grid stock with sampled cylindrical end-mill subtraction.
 
     This CPU reference simulator is intended for visualization and basic
     collision warnings, not machine verification or production control.
@@ -33,7 +30,10 @@ class VoxelStock:
     def __init__(self, bounds, voxel_size: float, max_voxels: int = 2_000_000):
         if len(bounds) != 6:
             raise SimulationError("Bounds must be (xmin, xmax, ymin, ymax, zmin, zmax)")
-        self.bounds = tuple(float(v) for v in bounds)
+        try:
+            self.bounds = tuple(float(v) for v in bounds)
+        except (TypeError, ValueError) as exc:
+            raise SimulationError("Stock bounds must be numeric") from exc
         if not all(math.isfinite(v) for v in self.bounds):
             raise SimulationError("Stock bounds must be finite")
         self.xmin, self.xmax, self.ymin, self.ymax, self.zmin, self.zmax = self.bounds
@@ -41,6 +41,8 @@ class VoxelStock:
             raise SimulationError("Stock bounds must have positive dimensions")
         if not math.isfinite(voxel_size) or voxel_size <= 0:
             raise SimulationError("Voxel size must be positive and finite")
+        if not isinstance(max_voxels, int) or max_voxels <= 0:
+            raise SimulationError("Voxel limit must be a positive integer")
         self.voxel_size = float(voxel_size)
         self.nx = math.ceil((self.xmax - self.xmin) / self.voxel_size)
         self.ny = math.ceil((self.ymax - self.ymin) / self.voxel_size)
@@ -50,16 +52,12 @@ class VoxelStock:
             raise SimulationError(
                 f"Stock resolution requires {voxel_count} voxels; limit is {max_voxels}"
             )
-        self._stock: Set[Voxel] = {
-            (i, j, k)
-            for i in range(self.nx)
-            for j in range(self.ny)
-            for k in range(self.nz)
-        }
+        self._stock = bytearray(b"\x01") * voxel_count
+        self._remaining = voxel_count
 
     @property
     def remaining_voxels(self) -> int:
-        return len(self._stock)
+        return self._remaining
 
     def simulate(self, segments: Iterable[ToolPathSegment], tool_dia: float,
                  flute_length: float) -> SimulationResult:
@@ -68,11 +66,14 @@ class VoxelStock:
             raise SimulationError("Tool diameter must be positive and finite")
         if not math.isfinite(flute_length) or flute_length <= 0:
             raise SimulationError("Flute length must be positive and finite")
-        removed = rapid_collisions = flute_overflows = 0
+        removed = 0
+        rapid_contacts = set()
+        overflow_contacts = set()
         radius = tool_dia / 2
         step = self.voxel_size / 2
-        radius_cells = math.ceil(radius / self.voxel_size)
         for segment in segments:
+            if segment.motion not in {"rapid", "feed", "arc_cw", "arc_ccw"}:
+                raise SimulationError(f"Unsupported motion type: {segment.motion}")
             points = self._segment_points(segment, step)
             for x, y, z in points:
                 if not (self.xmin <= x <= self.xmax and
@@ -84,34 +85,46 @@ class VoxelStock:
                 j1 = min(self.ny - 1, math.floor((y + radius - self.ymin) / self.voxel_size))
                 if i0 > i1 or j0 > j1:
                     continue
+                k0 = max(0, math.ceil((z - self.zmin) / self.voxel_size - 0.5))
+                k1 = min(
+                    self.nz - 1,
+                    math.floor((z + flute_length - self.zmin) / self.voxel_size - 0.5),
+                )
                 for i in range(i0, i1 + 1):
                     vx = self.xmin + (i + 0.5) * self.voxel_size
                     for j in range(j0, j1 + 1):
                         vy = self.ymin + (j + 0.5) * self.voxel_size
                         if (vx - x) ** 2 + (vy - y) ** 2 > radius ** 2:
                             continue
-                        for k in range(self.nz):
-                            voxel = (i, j, k)
-                            if voxel not in self._stock:
+                        for k in range(k0, k1 + 1):
+                            voxel_index = (i * self.ny + j) * self.nz + k
+                            if not self._stock[voxel_index]:
                                 continue
-                            vz = self.zmin + (k + 0.5) * self.voxel_size
                             if segment.motion == "rapid":
-                                if z <= vz <= z + flute_length:
-                                    rapid_collisions += 1
+                                rapid_contacts.add(voxel_index)
                                 continue
-                            if z <= vz <= z + flute_length:
-                                self._stock.remove(voxel)
-                                removed += 1
-                            elif vz > z + flute_length:
-                                flute_overflows += 1
+                            self._stock[voxel_index] = 0
+                            self._remaining -= 1
+                            removed += 1
+                        if segment.motion != "rapid":
+                            for k in range(k1 + 1, self.nz):
+                                voxel_index = (i * self.ny + j) * self.nz + k
+                                if self._stock[voxel_index]:
+                                    overflow_contacts.add(voxel_index)
         return SimulationResult(
-            removed, rapid_collisions, flute_overflows, len(self._stock),
+            removed, len(rapid_contacts), len(overflow_contacts), self._remaining,
         )
 
     def _segment_points(self, segment: ToolPathSegment, max_step: float):
         start, end = segment.start, segment.end
+        if (len(start) != 3 or len(end) != 3 or
+                not all(math.isfinite(value) for value in (*start, *end))):
+            raise SimulationError("Toolpath coordinates must be finite XYZ points")
         if segment.motion in ("arc_cw", "arc_ccw") and segment.arc_points:
             xy = list(segment.arc_points)
+            if any(len(point) != 2 or not all(math.isfinite(v) for v in point)
+                   for point in xy):
+                raise SimulationError("Arc path points must be finite XY points")
             if math.dist(xy[0], start[:2]) > 1e-9:
                 xy.insert(0, start[:2])
             if math.dist(xy[-1], end[:2]) > 1e-9:
