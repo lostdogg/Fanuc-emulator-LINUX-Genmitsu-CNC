@@ -72,6 +72,19 @@ class VoxelStock:
         overflow_contacts = set()
         radius = tool_dia / 2
         step = self.voxel_size / 2
+        offset_limit = math.ceil(radius / self.voxel_size) + 1
+        footprint = None
+        if (2 * offset_limit + 1) ** 2 <= 100_000:
+            footprint = [
+                (di, dj)
+                for di in range(-offset_limit, offset_limit + 1)
+                for dj in range(-offset_limit, offset_limit + 1)
+                if (
+                    max(abs(di + 0.5) - 1, 0) * self.voxel_size
+                ) ** 2 + (
+                    max(abs(dj + 0.5) - 1, 0) * self.voxel_size
+                ) ** 2 <= radius ** 2
+            ]
         last_sample = None
         for segment in segments:
             if segment.motion not in {"rapid", "feed", "arc_cw", "arc_ccw"}:
@@ -90,12 +103,20 @@ class VoxelStock:
                         y + radius < self.ymin or y - radius > self.ymax or
                         z > self.zmax or z + flute_length < self.zmin):
                     continue
-                i0 = max(0, math.floor((x - radius - self.xmin) / self.voxel_size))
-                i1 = min(self.nx - 1, math.floor((x + radius - self.xmin) / self.voxel_size))
-                j0 = max(0, math.floor((y - radius - self.ymin) / self.voxel_size))
-                j1 = min(self.ny - 1, math.floor((y + radius - self.ymin) / self.voxel_size))
-                if i0 > i1 or j0 > j1:
-                    continue
+                if footprint is not None:
+                    anchor_i = math.floor((x - self.xmin) / self.voxel_size)
+                    anchor_j = math.floor((y - self.ymin) / self.voxel_size)
+                    columns = ((anchor_i + di, anchor_j + dj)
+                               for di, dj in footprint)
+                else:
+                    i0 = max(0, math.floor((x - radius - self.xmin) / self.voxel_size))
+                    i1 = min(self.nx - 1, math.floor((x + radius - self.xmin) / self.voxel_size))
+                    j0 = max(0, math.floor((y - radius - self.ymin) / self.voxel_size))
+                    j1 = min(self.ny - 1, math.floor((y + radius - self.ymin) / self.voxel_size))
+                    if i0 > i1 or j0 > j1:
+                        continue
+                    columns = ((i, j) for i in range(i0, i1 + 1)
+                               for j in range(j0, j1 + 1))
                 k0 = max(0, math.ceil((z - self.zmin) / self.voxel_size - 0.5))
                 k1 = min(
                     self.nz - 1,
@@ -103,37 +124,37 @@ class VoxelStock:
                 )
                 if k0 > k1:
                     continue
-                for i in range(i0, i1 + 1):
+                for i, j in columns:
+                    if i < 0 or i >= self.nx or j < 0 or j >= self.ny:
+                        continue
                     vx = self.xmin + (i + 0.5) * self.voxel_size
-                    for j in range(j0, j1 + 1):
-                        vy = self.ymin + (j + 0.5) * self.voxel_size
-                        if (vx - x) ** 2 + (vy - y) ** 2 > radius ** 2:
+                    vy = self.ymin + (j + 0.5) * self.voxel_size
+                    if (vx - x) ** 2 + (vy - y) ** 2 > radius ** 2:
+                        continue
+                    column_index = i * self.ny + j
+                    column_top = self._column_tops[column_index]
+                    if column_top < k0:
+                        continue
+                    for k in range(k0, min(k1, column_top) + 1):
+                        voxel_index = column_index * self.nz + k
+                        if not self._stock[voxel_index]:
                             continue
-                        column_index = i * self.ny + j
-                        column_top = self._column_tops[column_index]
-                        if column_top < k0:
+                        if segment.motion == "rapid":
+                            rapid_contacts.add(voxel_index)
                             continue
-                        for k in range(k0, min(k1, column_top) + 1):
-                            voxel_index = column_index * self.nz + k
-                            if not self._stock[voxel_index]:
-                                continue
-                            if segment.motion == "rapid":
-                                rapid_contacts.add(voxel_index)
-                                continue
-                            self._stock[voxel_index] = 0
-                            self._remaining -= 1
-                            removed += 1
-                            if self._column_tops[column_index] == k:
-                                top = k - 1
-                                while (top >= 0 and
-                                       not self._stock[column_index * self.nz + top]):
-                                    top -= 1
-                                self._column_tops[column_index] = top
-                        if (segment.motion != "rapid" and
-                                k0 <= k1 and
-                                self._column_tops[column_index] >= k0 and
-                                self._column_tops[column_index] > k1):
-                            overflow_contacts.add(column_index)
+                        self._stock[voxel_index] = 0
+                        self._remaining -= 1
+                        removed += 1
+                        if self._column_tops[column_index] == k:
+                            top = k - 1
+                            while (top >= 0 and
+                                   not self._stock[column_index * self.nz + top]):
+                                top -= 1
+                            self._column_tops[column_index] = top
+                    if (segment.motion != "rapid" and
+                            self._column_tops[column_index] >= k0 and
+                            self._column_tops[column_index] > k1):
+                        overflow_contacts.add(column_index)
         return SimulationResult(
             removed, len(rapid_contacts), len(overflow_contacts), self._remaining,
         )

@@ -412,13 +412,16 @@ class App(tk.Tk):
             "DXF Import", "Replace the current editor contents?\n"
             "Choose No to append the generated program.", parent=self,
         ):
+            self._editor.edit_separator()
             self._editor.delete("1.0", "end")
             self._editor.insert("1.0", program)
         else:
+            self._editor.edit_separator()
             existing = self._editor.get("1.0", "end-1c")
             combined = cad.append_gcode_program(existing, program)
             self._editor.delete("1.0", "end")
             self._editor.insert("1.0", combined)
+        self._editor.edit_separator()
         self._log.log(
             f"Imported DXF features from {path}: "
             f"{len(features.holes)} holes, {len(features.profiles)} profiles."

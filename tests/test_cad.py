@@ -72,9 +72,15 @@ def test_arc_entities_chain_with_lines_into_profile():
 
 
 def test_full_circle_arc_is_recognized_as_hole():
-    source = dxf(("ARC", [(10, 2), (20, 3), (40, 1), (50, 0), (51, 360)]))
+    source = dxf(
+        ("ARC", [(10, 2), (20, 3), (40, 1), (50, 0), (51, 360)]),
+        ("ARC", [(10, 5), (20, 6), (40, 2), (50, 90), (51, 90)]),
+    )
     features = cad.extract_features(cad.parse_dxf(source))
-    assert features.holes == (cad.HoleFeature((2, 3), 2),)
+    assert features.holes == (
+        cad.HoleFeature((2, 3), 2),
+        cad.HoleFeature((5, 6), 4),
+    )
     assert not features.profiles
 
 
