@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import math
 from typing import List, Tuple, Union
 
+from .parser import parse_program
+
 Point = Tuple[float, float]
 
 
@@ -387,3 +389,31 @@ def features_to_gcode(features: CadFeatures, depth: float, feed: float,
             points[0], path, depth, feed=feed, safe_z=safe_z,
         ))
     return out
+
+
+def append_gcode_program(existing: str, generated: str) -> str:
+    """Insert generated blocks before an existing program-end marker."""
+    lines = existing.splitlines()
+    generated_lines = generated.splitlines()
+    if existing.strip() and generated_lines and generated_lines[0].strip().upper() == "G21 G90 G94":
+        generated_lines.pop(0)
+
+    blocks, _ = parse_program(existing)
+    end_blocks = [block.line_number for block in blocks
+                  if block.get("M") in (2, 30)]
+    if end_blocks:
+        insert_at = min(end_blocks) - 1
+    else:
+        last_nonempty = next(
+            (index for index in range(len(lines) - 1, -1, -1)
+             if lines[index].strip()),
+            None,
+        )
+        insert_at = (
+            last_nonempty
+            if last_nonempty is not None and last_nonempty > 0
+            and lines[last_nonempty].strip() == "%"
+            else len(lines)
+        )
+    lines[insert_at:insert_at] = generated_lines
+    return "\n".join(lines) + ("\n" if lines else "")

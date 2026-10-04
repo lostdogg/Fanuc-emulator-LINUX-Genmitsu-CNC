@@ -100,3 +100,12 @@ def test_extract_chains_respects_tolerance():
     )
     assert len(cad.extract_features(cad.parse_dxf(source), tolerance=0.001).profiles) == 1
     assert not cad.extract_features(cad.parse_dxf(source), tolerance=0.0001).profiles
+
+
+def test_appending_generated_gcode_preserves_program_end_order():
+    existing = "%\nO1\nG21 G90 G94\nG00 X0\nM30\n%"
+    generated = "G21 G90 G94\nG81 X1 Y2 Z-3 R5 F100\nG80\n"
+    combined = cad.append_gcode_program(existing, generated)
+    assert combined.index("G81") < combined.index("M30")
+    assert combined.count("G21 G90 G94") == 1
+    assert combined.rstrip().endswith("%")

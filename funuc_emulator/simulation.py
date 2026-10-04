@@ -106,7 +106,7 @@ class VoxelStock:
                         if column_top < k0:
                             continue
                         for k in range(k0, min(k1, column_top) + 1):
-                            voxel_index = (i * self.ny + j) * self.nz + k
+                            voxel_index = column_index * self.nz + k
                             if not self._stock[voxel_index]:
                                 continue
                             if segment.motion == "rapid":
@@ -122,7 +122,9 @@ class VoxelStock:
                                     top -= 1
                                 self._column_tops[column_index] = top
                         if (segment.motion != "rapid" and
-                                column_top > k1):
+                                k0 <= k1 and
+                                self._column_tops[column_index] >= k0 and
+                                self._column_tops[column_index] > k1):
                             overflow_contacts.add(column_index)
         return SimulationResult(
             removed, len(rapid_contacts), len(overflow_contacts), self._remaining,

@@ -410,7 +410,10 @@ class App(tk.Tk):
             self._editor.delete("1.0", "end")
             self._editor.insert("1.0", program)
         else:
-            self._editor.insert("end", "\n" + program)
+            existing = self._editor.get("1.0", "end-1c")
+            combined = cad.append_gcode_program(existing, program)
+            self._editor.delete("1.0", "end")
+            self._editor.insert("1.0", combined)
         self._log.log(
             f"Imported DXF features from {path}: "
             f"{len(features.holes)} holes, {len(features.profiles)} profiles."
