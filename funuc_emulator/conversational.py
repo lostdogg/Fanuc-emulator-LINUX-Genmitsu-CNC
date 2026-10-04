@@ -578,7 +578,10 @@ def radial_thinning_factor(ae, tool_dia) -> float:
 
 
 def adaptive_feed_rate(chip_load, flutes, rpm, ae, tool_dia) -> float:
-    """Calculate feed rate with radial chip-thinning compensation."""
+    """Calculate compensated feed from target chip thickness per tooth.
+
+    ``chip_load``, ``ae``, and ``tool_dia`` must use the same distance units.
+    """
     if chip_load <= 0 or flutes <= 0 or rpm <= 0:
         raise AGEError("Chip load, flute count, and spindle speed must be positive")
     return chip_load / radial_thinning_factor(ae, tool_dia) * flutes * rpm
@@ -635,9 +638,9 @@ def adaptive_rect_pocket(cx, cy, w, h, z, tool_dia, stepover=0.1,
         "G00 Z0",
     ]
     previous_depth = 0.0
+    max_ramp_drop = (2 * math.pi * entry_radius *
+                     math.tan(math.radians(ramp_angle)))
     for depth in depths:
-        max_ramp_drop = (2 * math.pi * entry_radius *
-                         math.tan(math.radians(ramp_angle)))
         turns = max(1, math.ceil((previous_depth - depth) / max_ramp_drop))
         for turn in range(1, turns + 1):
             ramp_z = previous_depth + (depth - previous_depth) * turn / turns
