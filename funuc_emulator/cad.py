@@ -125,6 +125,19 @@ def parse_dxf(source: str) -> DxfDocument:
             values = [v for c, v in data if c == code]
             return values[0] if values else default
 
+        def require_xy_plane():
+            for code, default, expected in (
+                (30, "0", 0.0), (31, "0", 0.0), (38, "0", 0.0),
+                (210, "0", 0.0), (220, "0", 0.0), (230, "1", 1.0),
+            ):
+                value = one(code, default)
+                try:
+                    value = float(value)
+                except ValueError as exc:
+                    raise CadError(f"{kind} has invalid plane group {code}") from exc
+                if not math.isfinite(value) or abs(value - expected) > 1e-9:
+                    raise CadError(f"{kind} is not in the supported XY plane")
+
         def number(code, default=None):
             value = one(code)
             if value is None:
@@ -139,6 +152,7 @@ def parse_dxf(source: str) -> DxfDocument:
                 raise CadError(f"{kind} contains a non-finite coordinate")
             return value
 
+        require_xy_plane()
         if kind == "LINE":
             entities.append(Line((number(10) * scale, number(20) * scale),
                                  (number(11) * scale, number(21) * scale)))
@@ -172,6 +186,8 @@ def parse_dxf(source: str) -> DxfDocument:
                         vertex_x = float(value)
                     except ValueError as exc:
                         raise CadError("Invalid LWPOLYLINE X coordinate") from exc
+                    if not math.isfinite(vertex_x):
+                        raise CadError("LWPOLYLINE coordinates must be finite")
                 elif code == 20:
                     if vertex_x is None:
                         raise CadError("LWPOLYLINE Y coordinate has no X coordinate")
@@ -179,6 +195,8 @@ def parse_dxf(source: str) -> DxfDocument:
                         vertex_y = float(value)
                     except ValueError as exc:
                         raise CadError("Invalid LWPOLYLINE Y coordinate") from exc
+                    if not math.isfinite(vertex_y):
+                        raise CadError("LWPOLYLINE coordinates must be finite")
                 elif code == 42:
                     if vertex_x is None or vertex_y is None:
                         raise CadError("LWPOLYLINE vertex is missing its Y coordinate")
@@ -260,10 +278,23 @@ def _bulge_segment(start: Point, end: Point, bulge: float) -> List[Point]:
     ]
 
 
+def _arc_points(arc: Arc) -> List[Point]:
+    start = math.radians(arc.start_angle % 360)
+    end = math.radians(arc.end_angle % 360)
+    while end <= start:
+        end += 2 * math.pi
+    count = max(1, math.ceil((end - start) / math.radians(15)))
+    return [
+        (arc.center[0] + arc.radius * math.cos(start + (end - start) * i / count),
+         arc.center[1] + arc.radius * math.sin(start + (end - start) * i / count))
+        for i in range(count + 1)
+    ]
+
+
 def extract_features(document: DxfDocument, tolerance: float = 0.001) -> CadFeatures:
-    """Recognize circular holes and closed polylines/line chains."""
-    if tolerance <= 0:
-        raise CadError("Chaining tolerance must be positive")
+    """Recognize circular holes and closed polyline/line/arc chains."""
+    if not math.isfinite(tolerance) or tolerance <= 0:
+        raise CadError("Chaining tolerance must be positive and finite")
     holes = [HoleFeature(entity.center, entity.radius * 2)
              for entity in document.entities if isinstance(entity, Circle)]
     profiles: List[ProfileFeature] = [
@@ -273,6 +304,10 @@ def extract_features(document: DxfDocument, tolerance: float = 0.001) -> CadFeat
     ]
     line_edges = [(entity.start, entity.end)
                   for entity in document.entities if isinstance(entity, Line)]
+    for entity in document.entities:
+        if isinstance(entity, Arc):
+            points = _arc_points(entity)
+            line_edges.extend(zip(points, points[1:]))
     profiles.extend(_closed_line_chains(line_edges, tolerance))
     return CadFeatures(tuple(holes), tuple(profiles))
 
@@ -314,12 +349,17 @@ def _closed_line_chains(edges: List[Tuple[Point, Point]],
 def features_to_gcode(features: CadFeatures, depth: float, feed: float,
                       safe_z: float = 5.0) -> List[str]:
     """Convert extracted holes and closed boundaries to basic milling G-code."""
-    if depth >= 0 or feed <= 0 or safe_z <= 0:
+    if (not all(math.isfinite(v) for v in (depth, feed, safe_z)) or
+            depth >= 0 or feed <= 0 or safe_z <= 0):
         raise CadError("Depth must be negative; feed and safe Z must be positive")
     from . import conversational
 
     out = ["G21 G90 G94"]
     for hole in features.holes:
+        out.append(
+            f"(DRILL CENTER X{hole.center[0]:g} Y{hole.center[1]:g} "
+            f"DIAMETER {hole.diameter:g} mm)"
+        )
         out.extend(conversational.drill(
             hole.center[0], hole.center[1], depth, safe_z, feed,
         ))

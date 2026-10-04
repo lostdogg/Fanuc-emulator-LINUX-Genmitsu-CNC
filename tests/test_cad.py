@@ -42,6 +42,18 @@ def test_lwpolyline_bulges_are_tessellated_for_profile_generation():
     assert any(y < 0 for _, y in polyline.points)
 
 
+def test_arc_entities_chain_with_lines_into_profile():
+    source = dxf(
+        ("ARC", [(10, 0), (20, 0), (40, 1), (50, 0), (51, 180)]),
+        ("LINE", [(10, -1), (20, 0), (11, -1), (21, -1)]),
+        ("LINE", [(10, -1), (20, -1), (11, 1), (21, -1)]),
+        ("LINE", [(10, 1), (20, -1), (11, 1), (21, 0)]),
+    )
+    features = cad.extract_features(cad.parse_dxf(source))
+    assert len(features.profiles) == 1
+    assert len(features.profiles[0].points) > 4
+
+
 def test_extract_line_chains_and_generate_conversational_gcode():
     source = dxf(
         ("LINE", [(10, 0), (20, 0), (11, 10), (21, 0)]),
@@ -55,6 +67,7 @@ def test_extract_line_chains_and_generate_conversational_gcode():
     assert len(features.profiles) == 1
     code = cad.features_to_gcode(features, -2, 100)
     assert any(line.startswith("G81 X5 Y5 Z-2") for line in code)
+    assert any("DIAMETER 2 mm" in line for line in code)
     assert any(line.startswith("G01 X") for line in code)
     assert code[0] == "G21 G90 G94"
 
@@ -64,6 +77,9 @@ def test_dxf_rejects_invalid_or_unsupported_geometry():
         cad.parse_dxf("0\nSECTION\n2\nENTITIES\n0\nEOF\n")
     with pytest.raises(cad.CadError):
         cad.parse_dxf(dxf(("CIRCLE", [(10, 0), (20, 0), (40, -1)])))
+    with pytest.raises(cad.CadError):
+        cad.parse_dxf(dxf(("LINE", [(10, 0), (20, 0), (30, 1),
+                                    (11, 1), (21, 0)])))
     with pytest.raises(cad.CadError):
         cad.features_to_gcode(cad.CadFeatures((), ()), 0, 100)
 
