@@ -160,7 +160,7 @@ class App(tk.Tk):
                                  accelerator="F6")
         machine_menu.add_separator()
         machine_menu.add_command(label="Reset Machine", command=self._reset_machine)
-        machine_menu.add_command(label="Fit View", command=self._canvas.fit_all,
+        machine_menu.add_command(label="Fit View", command=lambda: self._canvas.fit_all(),
                                  accelerator="F")
         menubar.add_cascade(label="Machine", menu=machine_menu)
 
