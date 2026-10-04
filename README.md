@@ -138,3 +138,18 @@ equivalents:
 - **No COM / DLL / .NET** dependencies
 - **File paths**: POSIX-compatible throughout
 - **Packaging**: plain Python package – no `.exe` or installer needed
+
+## Conversational programming / A.G.E.
+
+`funuc_emulator/conversational.py` provides an Auto Geometry Engine that solves
+missing profile geometry (line/arc end points, tangents, arc centres,
+intersections; `guess` points disambiguate solutions; unsolved elements raise
+"Not Calculated") and generates G-code for Drill/Tap/Bore, Bolt Hole, Mill, Arc,
+Pocket (rect/circular, with finish pass), Profile (G41/G42 cutter comp),
+Conrad corner radiusing, and repeat/rotate/mirror/scale transforms.
+
+The **A.G.E. > Solve Profile…** menu opens a solver dialog: enter only the known
+values per element (`line angle=0`, `arc r=2 cw`, `guess=x,y`, `tangent`) and
+fields are coloured live – white *Given*, green *Calculated*, orange *Guess*,
+red *Not Calculated*. Supported: line/arc tangency, arc tangent to two lines,
+line tangent to two arcs, line/arc intersections, and chamfer/radius corners.
