@@ -183,3 +183,12 @@ or interactive 3D rendering. DWG, Parasolid, NURBS, arbitrary 3D CAD/B-rep,
 entity picking, and GPU simulation are not currently supported. DXF layer
 semantics, G54/WCS or part-zero transformations, and bulged polylines'
 tessellated geometry should be reviewed before generating machine code.
+
+`funuc_emulator/surface.py` adds numerical multi-surface path mathematics:
+parametric surface normals, ball/flat/toroidal cutter-center offsets, affine
+WCS transforms, curvature-based scallop/stepover calculations, adaptive
+chord-error subdivision, sampled surface-clearance queries, and sampled
+vertical drop-cutter height. These operations approximate surfaces on finite
+grids and are not certified gouge detection or production CNC verification.
+The helpers are library APIs and are not yet connected to the DXF UI or machine
+simulation.
