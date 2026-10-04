@@ -171,7 +171,9 @@ connected line chains become profile paths, and circles become drill positions.
 The import asks for a cut depth and feed before placing generated G-code in the
 editor. Inspect and simulate the program before use.
 Profiles that meet at ambiguous branch junctions are skipped by the current
-line-chain recognizer.
+line-chain recognizer. Generated profile paths follow the CAD boundary at the
+tool center and do not apply cutter-radius compensation; choose tooling/offsets
+accordingly and verify the resulting program before machining.
 
 `funuc_emulator/simulation.py` provides a deterministic CPU voxel-stock
 reference simulator for sampled end-mill paths, reporting removed stock, rapid

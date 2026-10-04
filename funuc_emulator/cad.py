@@ -364,7 +364,11 @@ def _closed_line_chains(edges: List[Tuple[Point, Point]],
 
 def features_to_gcode(features: CadFeatures, depth: float, feed: float,
                       safe_z: float = 5.0) -> List[str]:
-    """Convert extracted holes and closed boundaries to basic milling G-code."""
+    """Convert extracted features to basic G-code.
+
+    Profile moves follow the extracted boundary at the tool center; no cutter
+    radius compensation or inside/outside offset is applied.
+    """
     if (not all(math.isfinite(v) for v in (depth, feed, safe_z)) or
             depth >= 0 or feed <= 0 or safe_z <= 0):
         raise CadError("Depth must be negative; feed and safe Z must be positive")

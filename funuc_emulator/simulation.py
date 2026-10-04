@@ -105,9 +105,9 @@ class VoxelStock:
             for di in range(-offset_limit, offset_limit + 1)
             for dj in range(-offset_limit, offset_limit + 1)
             if (
-                max(abs(di + 0.5) - 1, 0) * self.voxel_size
+                max(-di - 0.5, di - 0.5, 0) * self.voxel_size
             ) ** 2 + (
-                max(abs(dj + 0.5) - 1, 0) * self.voxel_size
+                max(-dj - 0.5, dj - 0.5, 0) * self.voxel_size
             ) ** 2 <= radius ** 2
         ]
 

@@ -386,8 +386,9 @@ class App(tk.Tk):
             f"Closed profiles: {len(features.profiles)}\n\n"
             "This import only recognizes circles and closed polylines/line "
             "chains. Source XY coordinates are preserved; no G54/WCS or part "
-            "zero transform is applied. Confirm units and origin before "
-            "generating code."
+            "zero transform is applied. Profile paths have no cutter-radius "
+            "compensation. Confirm units, origin, and offsets before generating "
+            "code."
         )
         if not messagebox.askyesno("Review DXF Features", summary, parent=self):
             return
@@ -405,7 +406,7 @@ class App(tk.Tk):
             return
         try:
             program = "\n".join(cad.features_to_gcode(features, depth, feed)) + "\n"
-        except (ValueError, conversational.AGEError) as exc:
+        except (cad.CadError, conversational.AGEError) as exc:
             messagebox.showerror("DXF Import", str(exc), parent=self)
             return
         if messagebox.askyesno(
