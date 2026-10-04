@@ -208,7 +208,7 @@ class App(tk.Tk):
                   **btn_opts).pack(side="left", padx=2)
         tk.Button(parent, text="⟳  Reset", command=self._reset_machine,
                   **btn_opts).pack(side="left", padx=2)
-        tk.Button(parent, text="⊞  Fit (F)", command=self._canvas.fit_all,
+        tk.Button(parent, text="⊞  Fit (F)", command=lambda: self._canvas.fit_all(),
                   **btn_opts).pack(side="left", padx=2)
 
         tk.Frame(parent, bg="#2d2d2d", width=2).pack(side="left", padx=6,
