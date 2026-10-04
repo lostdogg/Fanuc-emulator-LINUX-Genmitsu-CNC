@@ -409,19 +409,18 @@ class App(tk.Tk):
         except (cad.CadError, conversational.AGEError) as exc:
             messagebox.showerror("DXF Import", str(exc), parent=self)
             return
-        if messagebox.askyesno(
+        replace_program = messagebox.askyesno(
             "DXF Import", "Replace the current editor contents?\n"
             "Choose No to append the generated program.", parent=self,
-        ):
-            self._editor.edit_separator()
-            self._editor.delete("1.0", "end")
-            self._editor.insert("1.0", program)
+        )
+        if replace_program:
+            updated_program = program
         else:
-            self._editor.edit_separator()
             existing = self._editor.get("1.0", "end-1c")
-            combined = cad.append_gcode_program(existing, program)
-            self._editor.delete("1.0", "end")
-            self._editor.insert("1.0", combined)
+            updated_program = cad.append_gcode_program(existing, program)
+        self._editor.edit_separator()
+        self._editor.delete("1.0", "end")
+        self._editor.insert("1.0", updated_program)
         self._editor.edit_separator()
         self._log.log(
             f"Imported DXF features from {path}: "

@@ -98,6 +98,10 @@ def test_adaptive_rect_pocket_layers_and_validation():
         c.adaptive_rect_pocket(0, 0, 4, 16, -5, 4)
     with pytest.raises(c.AGEError):
         c.adaptive_rect_pocket(0, 0, 20, 16, -5, 4, ramp_angle=0)
+    with pytest.raises(c.AGEError):
+        c.adaptive_rect_pocket(0, 0, 20, 16, -1, 4, ramp_angle=1e-10)
+    with pytest.raises(c.AGEError):
+        c.adaptive_rect_pocket(0, 0, 20, 16, -1, 4, max_doc=1e-5)
 
 
 def test_transforms():

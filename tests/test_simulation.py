@@ -78,3 +78,8 @@ def test_arc_motion_and_invalid_stock_configuration():
         VoxelStock((0, 100, 0, 100, 0, 100), 0.1)
     with pytest.raises(SimulationError):
         stock.simulate([], tool_dia=0, flute_length=1)
+    oversized_arc = ToolPathSegment(
+        "arc_ccw", (0, 0, 0), (0, 0, 0), [(0, 0)] * 100_002,
+    )
+    with pytest.raises(SimulationError):
+        stock.simulate([oversized_arc], tool_dia=1, flute_length=1)

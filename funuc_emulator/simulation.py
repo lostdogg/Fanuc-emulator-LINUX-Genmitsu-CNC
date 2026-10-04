@@ -8,6 +8,8 @@ from typing import Iterable
 
 from .machine import ToolPathSegment
 
+_MAX_SEGMENT_SAMPLES = 100_000
+
 
 class SimulationError(ValueError):
     """Raised for invalid stock or tool simulation parameters."""
@@ -206,12 +208,15 @@ class VoxelStock:
             segment.motion, clipped_start, clipped_end, segment.arc_points,
         )
 
-    def _segment_points(self, segment: ToolPathSegment, max_step: float):
+    def _segment_points(self, segment: ToolPathSegment, max_step: float,
+                        max_samples: int = _MAX_SEGMENT_SAMPLES):
         start, end = segment.start, segment.end
         if (len(start) != 3 or len(end) != 3 or
                 not all(math.isfinite(value) for value in (*start, *end))):
             raise SimulationError("Toolpath coordinates must be finite XYZ points")
         if segment.motion in ("arc_cw", "arc_ccw") and segment.arc_points:
+            if len(segment.arc_points) > max_samples + 1:
+                raise SimulationError("Arc exceeds the maximum simulation sample count")
             xy = list(segment.arc_points)
             if any(len(point) != 2 or not all(math.isfinite(v) for v in point)
                    for point in xy):
@@ -227,9 +232,13 @@ class VoxelStock:
         else:
             nodes = [start, end]
         points = []
+        sample_count = 0
         for a, b in zip(nodes, nodes[1:]):
             distance = math.dist(a, b)
             count = max(1, math.ceil(distance / max_step))
+            sample_count += count
+            if sample_count > max_samples:
+                raise SimulationError("Move exceeds the maximum simulation sample count")
             points.extend(tuple(a[d] + (b[d] - a[d]) * i / count
                                 for d in range(3))
                           for i in range(count))

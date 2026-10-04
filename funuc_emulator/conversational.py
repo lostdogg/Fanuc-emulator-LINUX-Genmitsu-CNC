@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 
 Point = Tuple[float, float]
 EPS = 1e-9
+_MAX_ADAPTIVE_PASSES = 10_000
 
 
 class AGEError(ValueError):
@@ -613,6 +614,9 @@ def adaptive_rect_pocket(cx, cy, w, h, z, tool_dia, stepover=0.1,
         max_doc = abs(z)
     if not math.isfinite(max_doc) or max_doc <= 0:
         raise AGEError("Maximum depth of cut must be positive and finite")
+    pass_count = abs(z) / max_doc
+    if not math.isfinite(pass_count) or pass_count > _MAX_ADAPTIVE_PASSES:
+        raise AGEError("Adaptive pocket exceeds the maximum depth-pass count")
 
     radius = tool_dia / 2
     max_x, max_y = w / 2 - radius, h / 2 - radius
@@ -640,8 +644,13 @@ def adaptive_rect_pocket(cx, cy, w, h, z, tool_dia, stepover=0.1,
     previous_depth = 0.0
     max_ramp_drop = (2 * math.pi * entry_radius *
                      math.tan(math.radians(ramp_angle)))
+    if not math.isfinite(max_ramp_drop) or max_ramp_drop <= 0:
+        raise AGEError("Helical ramp settings produce an invalid depth increment")
     for depth in depths:
-        turns = max(1, math.ceil((previous_depth - depth) / max_ramp_drop))
+        required_turns = (previous_depth - depth) / max_ramp_drop
+        if not math.isfinite(required_turns) or required_turns > _MAX_ADAPTIVE_PASSES:
+            raise AGEError("Helical entry exceeds the maximum turn count")
+        turns = max(1, math.ceil(required_turns))
         for turn in range(1, turns + 1):
             ramp_z = previous_depth + (depth - previous_depth) * turn / turns
             out.append(
