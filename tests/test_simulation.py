@@ -31,6 +31,15 @@ def test_flute_overflow_is_reported():
     assert result.removed_voxels == 4
 
 
+def test_tool_engages_stock_when_centerline_is_outside_stock():
+    stock = VoxelStock((-2, 2, -2, 2, 0, 2), 1)
+    result = stock.simulate(
+        [segment("feed", (2.2, 0, 0), (2.2, 0, 0))],
+        tool_dia=2, flute_length=2,
+    )
+    assert result.removed_voxels > 0
+
+
 def test_arc_motion_and_invalid_stock_configuration():
     stock = VoxelStock((-2, 2, -2, 2, 0, 2), 1)
     arc = ToolPathSegment("arc_ccw", (1, 0, 0), (0, 1, 0),

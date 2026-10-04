@@ -170,6 +170,8 @@ millimeters; polyline bulges are tessellated, closed boundaries and near-
 connected line chains become profile paths, and circles become drill positions.
 The import asks for a cut depth and feed before placing generated G-code in the
 editor. Inspect and simulate the program before use.
+Profiles that meet at ambiguous branch junctions are skipped by the current
+line-chain recognizer.
 
 `funuc_emulator/simulation.py` provides a deterministic CPU voxel-stock
 reference simulator for sampled end-mill paths, reporting removed stock, rapid
@@ -177,5 +179,5 @@ contacts, and flute-length overflows. It is not a machine-verification system:
 it does not model fixtures, toolholders, machine kinematics, surface scallops,
 or interactive 3D rendering. DWG, Parasolid, NURBS, arbitrary 3D CAD/B-rep,
 entity picking, and GPU simulation are not currently supported. DXF layer
-semantics and bulged polylines' tessellated geometry should be reviewed before
-generating machine code.
+semantics, G54/WCS or part-zero transformations, and bulged polylines'
+tessellated geometry should be reviewed before generating machine code.

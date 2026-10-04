@@ -78,13 +78,15 @@ def test_radial_chip_thinning_feed_compensation():
 def test_adaptive_rect_pocket_layers_and_validation():
     g = c.adaptive_rect_pocket(0, 0, 20, 16, -5, 4, stepover=0.1,
                                feed=120, max_doc=2)
-    assert sum(line.startswith("G01 Z-") for line in g) == 3
+    assert sum(line.startswith("G03 X0 Y-0.4 Z-") for line in g) == 3
     assert sum(line.startswith("G03") for line in g) > 3
     assert g[-1] == "G00 Z5"
     with pytest.raises(c.AGEError):
         c.adaptive_rect_pocket(0, 0, 20, 16, -5, 4, stepover=0.5)
     with pytest.raises(c.AGEError):
         c.adaptive_rect_pocket(0, 0, 3, 16, -5, 4)
+    with pytest.raises(c.AGEError):
+        c.adaptive_rect_pocket(0, 0, 4, 16, -5, 4)
 
 
 def test_transforms():

@@ -54,6 +54,7 @@ class VoxelStock:
             )
         self._stock = bytearray(b"\x01") * voxel_count
         self._remaining = voxel_count
+        self._column_tops = [self.nz - 1] * (self.nx * self.ny)
 
     @property
     def remaining_voxels(self) -> int:
@@ -76,9 +77,6 @@ class VoxelStock:
                 raise SimulationError(f"Unsupported motion type: {segment.motion}")
             points = self._segment_points(segment, step)
             for x, y, z in points:
-                if not (self.xmin <= x <= self.xmax and
-                        self.ymin <= y <= self.ymax):
-                    continue
                 i0 = max(0, math.floor((x - radius - self.xmin) / self.voxel_size))
                 i1 = min(self.nx - 1, math.floor((x + radius - self.xmin) / self.voxel_size))
                 j0 = max(0, math.floor((y - radius - self.ymin) / self.voxel_size))
@@ -96,6 +94,7 @@ class VoxelStock:
                         vy = self.ymin + (j + 0.5) * self.voxel_size
                         if (vx - x) ** 2 + (vy - y) ** 2 > radius ** 2:
                             continue
+                        column_index = i * self.ny + j
                         for k in range(k0, k1 + 1):
                             voxel_index = (i * self.ny + j) * self.nz + k
                             if not self._stock[voxel_index]:
@@ -106,11 +105,15 @@ class VoxelStock:
                             self._stock[voxel_index] = 0
                             self._remaining -= 1
                             removed += 1
-                        if segment.motion != "rapid":
-                            for k in range(k1 + 1, self.nz):
-                                voxel_index = (i * self.ny + j) * self.nz + k
-                                if self._stock[voxel_index]:
-                                    overflow_contacts.add(voxel_index)
+                            if self._column_tops[column_index] == k:
+                                top = k - 1
+                                while (top >= 0 and
+                                       not self._stock[column_index * self.nz + top]):
+                                    top -= 1
+                                self._column_tops[column_index] = top
+                        if (segment.motion != "rapid" and
+                                self._column_tops[column_index] > k1):
+                            overflow_contacts.add(column_index)
         return SimulationResult(
             removed, len(rapid_contacts), len(overflow_contacts), self._remaining,
         )

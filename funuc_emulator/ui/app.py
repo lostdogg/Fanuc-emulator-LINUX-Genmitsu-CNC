@@ -380,8 +380,9 @@ class App(tk.Tk):
             f"Circular holes: {len(features.holes)}\n"
             f"Closed profiles: {len(features.profiles)}\n\n"
             "This import only recognizes circles and closed polylines/line "
-            "chains. Confirm that drawing dimensions are millimeters after "
-            "conversion before generating code."
+            "chains. Source XY coordinates are preserved; no G54/WCS or part "
+            "zero transform is applied. Confirm units and origin before "
+            "generating code."
         )
         if not messagebox.askyesno("Review DXF Features", summary, parent=self):
             return
@@ -397,7 +398,11 @@ class App(tk.Tk):
         )
         if feed is None:
             return
-        program = "\n".join(cad.features_to_gcode(features, depth, feed)) + "\n"
+        try:
+            program = "\n".join(cad.features_to_gcode(features, depth, feed)) + "\n"
+        except ValueError as exc:
+            messagebox.showerror("DXF Import", str(exc), parent=self)
+            return
         if messagebox.askyesno(
             "DXF Import", "Replace the current editor contents?\n"
             "Choose No to append the generated program.", parent=self,

@@ -54,6 +54,13 @@ def test_arc_entities_chain_with_lines_into_profile():
     assert len(features.profiles[0].points) > 4
 
 
+def test_full_circle_arc_is_recognized_as_hole():
+    source = dxf(("ARC", [(10, 2), (20, 3), (40, 1), (50, 0), (51, 360)]))
+    features = cad.extract_features(cad.parse_dxf(source))
+    assert features.holes == (cad.HoleFeature((2, 3), 2),)
+    assert not features.profiles
+
+
 def test_extract_line_chains_and_generate_conversational_gcode():
     source = dxf(
         ("LINE", [(10, 0), (20, 0), (11, 10), (21, 0)]),

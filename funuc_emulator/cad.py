@@ -279,24 +279,37 @@ def _bulge_segment(start: Point, end: Point, bulge: float) -> List[Point]:
 
 
 def _arc_points(arc: Arc) -> List[Point]:
+    sweep = (arc.end_angle - arc.start_angle) % 360
+    if abs(arc.end_angle - arc.start_angle) >= 360 - 1e-9:
+        sweep = 360
+    if sweep <= 1e-12:
+        return [(
+            arc.center[0] + arc.radius * math.cos(math.radians(arc.start_angle)),
+            arc.center[1] + arc.radius * math.sin(math.radians(arc.start_angle)),
+        )]
     start = math.radians(arc.start_angle % 360)
-    end = math.radians(arc.end_angle % 360)
-    while end <= start:
-        end += 2 * math.pi
-    count = max(1, math.ceil((end - start) / math.radians(15)))
+    sweep = math.radians(sweep)
+    count = max(1, math.ceil(sweep / math.radians(15)))
     return [
-        (arc.center[0] + arc.radius * math.cos(start + (end - start) * i / count),
-         arc.center[1] + arc.radius * math.sin(start + (end - start) * i / count))
+        (arc.center[0] + arc.radius * math.cos(start + sweep * i / count),
+         arc.center[1] + arc.radius * math.sin(start + sweep * i / count))
         for i in range(count + 1)
     ]
 
 
 def extract_features(document: DxfDocument, tolerance: float = 0.001) -> CadFeatures:
-    """Recognize circular holes and closed polyline/line/arc chains."""
+    """Recognize circles, full-circle arcs, and closed polyline/line/arc chains.
+
+    Line chains with ambiguous branch junctions are skipped rather than
+    arbitrarily choosing a contour.
+    """
     if not math.isfinite(tolerance) or tolerance <= 0:
         raise CadError("Chaining tolerance must be positive and finite")
     holes = [HoleFeature(entity.center, entity.radius * 2)
-             for entity in document.entities if isinstance(entity, Circle)]
+             for entity in document.entities
+             if isinstance(entity, Circle) or
+             (isinstance(entity, Arc) and
+              abs(entity.end_angle - entity.start_angle) >= 360 - 1e-9)]
     profiles: List[ProfileFeature] = [
         ProfileFeature(entity.points)
         for entity in document.entities
@@ -305,7 +318,8 @@ def extract_features(document: DxfDocument, tolerance: float = 0.001) -> CadFeat
     line_edges = [(entity.start, entity.end)
                   for entity in document.entities if isinstance(entity, Line)]
     for entity in document.entities:
-        if isinstance(entity, Arc):
+        if (isinstance(entity, Arc) and
+                abs(entity.end_angle - entity.start_angle) < 360 - 1e-9):
             points = _arc_points(entity)
             line_edges.extend(zip(points, points[1:]))
     profiles.extend(_closed_line_chains(line_edges, tolerance))
