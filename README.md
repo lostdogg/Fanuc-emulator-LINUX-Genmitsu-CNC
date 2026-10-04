@@ -148,6 +148,14 @@ intersections; `guess` points disambiguate solutions; unsolved elements raise
 Pocket (rect/circular, with finish pass), Profile (G41/G42 cutter comp),
 Conrad corner radiusing, and repeat/rotate/mirror/scale transforms.
 
+Adaptive milling helpers are also available from this module:
+`radial_thinning_factor(ae, tool_dia)` calculates the radial chip-thinning
+factor, `adaptive_feed_rate(chip_load, flutes, rpm, ae, tool_dia)` calculates
+the compensated table feed, and `adaptive_rect_pocket(...)` generates a
+rounded-loop rectangular pocket roughing path with a radial stepover below 50%
+and optional axial depth-per-pass control. Review and verify generated G-code
+against the actual machine, tooling, material, and workholding before machining.
+
 The **A.G.E. > Solve Profile…** menu opens a solver dialog: enter only the known
 values per element (`line angle=0`, `arc r=2 cw`, `guess=x,y`, `tangent`) and
 fields are coloured live – white *Given*, green *Calculated*, orange *Guess*,
