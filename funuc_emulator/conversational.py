@@ -136,6 +136,9 @@ class Element:
     # solver status per field: "given" | "calculated" | "guess"
     status: dict = field(default_factory=dict)
 
+    def tangent_ok(self) -> bool:
+        return True
+
 
 def _end_dir(el: Element, start: Point) -> Optional[float]:
     """Travel direction (deg) at the end of a solved element."""
@@ -145,7 +148,8 @@ def _end_dir(el: Element, start: Point) -> Optional[float]:
     return math.degrees(a + (-math.pi / 2 if el.cw else math.pi / 2))
 
 
-def solve_profile(start: Point, elements: List[Element]) -> List[Element]:
+def solve_profile(start: Point, elements: List[Element],
+                  strict: bool = True) -> List[Element]:
     """Fill in missing geometry for a connected chain of lines and arcs.
 
     Iterates until no more progress is made; raises AGEError listing any
@@ -159,6 +163,8 @@ def solve_profile(start: Point, elements: List[Element]) -> List[Element]:
         progress = False
         pos = start
         prev_dir: Optional[float] = None
+        if _solve_triples(start, elements):
+            progress = True
         for i, el in enumerate(elements):
             before = (el.x, el.y, el.cx, el.cy, el.angle, el.radius)
             nxt = elements[i + 1] if i + 1 < len(elements) else None
@@ -172,9 +178,77 @@ def solve_profile(start: Point, elements: List[Element]) -> List[Element]:
         if not progress:
             break
     bad = [i + 1 for i, e in enumerate(elements) if not _complete(e)]
-    if bad:
+    if bad and strict:
         raise AGEError(f"Not Calculated: element(s) {bad} under-constrained")
     return elements
+
+
+def _starts(start: Point, elements: List[Element]) -> List[Optional[Point]]:
+    out: List[Optional[Point]] = []
+    pos: Optional[Point] = start
+    for el in elements:
+        out.append(pos)
+        pos = (el.x, el.y) if el.x is not None and el.y is not None else None
+    return out
+
+
+def tangent_line_two_arcs(c1: Point, r1: float, cw1: bool,
+                          c2: Point, r2: float, cw2: bool):
+    """Line leaving arc 1 and entering arc 2 tangentially (travel-direction
+    aware: external or internal tangent is chosen by the arc directions).
+
+    Returns (point_on_arc1, point_on_arc2).
+    """
+    s1, s2 = (-1 if cw1 else 1), (-1 if cw2 else 1)
+    k = s2 * r2 - s1 * r1
+    vx, vy = c2[0] - c1[0], c2[1] - c1[1]
+    dist = math.hypot(vx, vy)
+    if dist < EPS or abs(k) > dist + EPS:
+        raise AGEError("No tangent line exists between arcs")
+    theta = math.atan2(vy, vx) - math.asin(max(-1.0, min(1.0, k / dist)))
+    nx, ny = -math.sin(theta), math.cos(theta)
+    return ((c1[0] - s1 * r1 * nx, c1[1] - s1 * r1 * ny),
+            (c2[0] - s2 * r2 * nx, c2[1] - s2 * r2 * ny))
+
+
+def arc_tangent_two_lines(start: Point, a1: float, end2: Point, a2: float,
+                          radius: float):
+    """Arc of ``radius`` tangent to line 1 (from ``start`` at angle a1) and
+    line 2 (through ``end2`` at angle a2). Returns (t1, t2, centre, cw)."""
+    corner = line_line(start, a1, end2, a2)
+    return fillet(start, corner, end2, radius)
+
+
+def _solve_triples(start: Point, els: List[Element]) -> bool:
+    """Patterns spanning three elements: arc-line-arc and line-arc-line."""
+    changed = False
+    starts = _starts(start, els)
+    for i in range(len(els) - 2):
+        a, b, c = els[i], els[i + 1], els[i + 2]
+        sp = starts[i]
+        if a.kind == "arc" and b.kind == "line" and c.kind == "arc" and b.tangent_ok() \
+                and a.cx is not None and a.cy is not None and a.x is None and a.y is None \
+                and c.cx is not None and c.cy is not None and c.radius is not None \
+                and sp is not None:
+            r1 = a.radius if a.radius is not None else math.dist(sp, (a.cx, a.cy))
+            p1, p2 = tangent_line_two_arcs((a.cx, a.cy), r1, a.cw,
+                                           (c.cx, c.cy), c.radius, c.cw)
+            _set(a, "x", p1[0]); _set(a, "y", p1[1])
+            _set(b, "x", p2[0]); _set(b, "y", p2[1])
+            _set(a, "radius", r1)
+            changed = True
+        elif a.kind == "line" and b.kind == "arc" and c.kind == "line" \
+                and a.x is None and a.y is None and a.angle is not None \
+                and b.radius is not None and b.cx is None and b.x is None \
+                and c.angle is not None and c.x is not None and c.y is not None \
+                and sp is not None:
+            t1, t2, ctr, cw = arc_tangent_two_lines(sp, a.angle, (c.x, c.y), c.angle, b.radius)
+            _set(a, "x", t1[0]); _set(a, "y", t1[1])
+            _set(b, "x", t2[0]); _set(b, "y", t2[1])
+            _set(b, "cx", ctr[0]); _set(b, "cy", ctr[1])
+            b.cw = cw
+            changed = True
+    return changed
 
 
 def _complete(el: Element) -> bool:
@@ -311,6 +385,107 @@ def conrad(points: List[Point], radius: float, closed: bool = False) -> List[Tup
         path.append(("line", *ta))
         path.append(("arc", tb[0], tb[1], ctr[0] - ta[0], ctr[1] - ta[1], cw))
     return path
+
+
+def chamfer(p0: Point, corner: Point, p1: Point, size: float):
+    """Chamfer a corner with equal legs of ``size``; returns (ta, tb)."""
+    v0 = (p0[0] - corner[0], p0[1] - corner[1])
+    v1 = (p1[0] - corner[0], p1[1] - corner[1])
+    l0, l1 = math.hypot(*v0), math.hypot(*v1)
+    if l0 < EPS or l1 < EPS or size > min(l0, l1) + EPS:
+        raise AGEError("Chamfer too large for adjacent segments")
+    return ((corner[0] + v0[0] / l0 * size, corner[1] + v0[1] / l0 * size),
+            (corner[0] + v1[0] / l1 * size, corner[1] + v1[1] / l1 * size))
+
+
+def chamfer_corners(points: List[Point], size: float) -> List[Tuple]:
+    """Chamfer every interior corner of an open polyline."""
+    path: List[Tuple] = []
+    for i in range(1, len(points) - 1):
+        ta, tb = chamfer(points[i - 1], points[i], points[i + 1], size)
+        path += [("line", *ta), ("line", *tb)]
+    path.append(("line", *points[-1]))
+    return path
+
+
+GIVEN, CALCULATED, GUESS, NOT_CALCULATED = "Given", "Calculated", "Guess", "Not Calculated"
+STATUS_COLOURS = {GIVEN: "white", CALCULATED: "green", GUESS: "orange",
+                  NOT_CALCULATED: "red"}
+
+
+def field_report(start: Point, elements: List[Element]) -> List[dict]:
+    """Solve as far as possible (never raises on under-constraint) and report
+    every relevant field with its status for real-time feedback."""
+    try:
+        solve_profile(start, elements, strict=False)
+    except AGEError as exc:
+        return [{"element": 0, "field": "error", "value": None,
+                 "status": NOT_CALCULATED, "colour": "red", "message": str(exc)}]
+    rows = []
+    for i, el in enumerate(elements, 1):
+        names = ["x", "y"] + (["angle"] if el.kind == "line" else ["radius", "cx", "cy"])
+        for n in names:
+            v = getattr(el, n)
+            if v is not None:
+                st = el.status.get(n, GIVEN)
+                st = GIVEN if st == "given" else CALCULATED if st == "calculated" else st
+            elif n in ("x", "y") and el.guess is not None:
+                v, st = el.guess[0 if n == "x" else 1], GUESS
+            else:
+                st = NOT_CALCULATED
+            rows.append({"element": i, "field": n, "value": v, "status": st,
+                         "colour": STATUS_COLOURS[st]})
+    return rows
+
+
+def fully_constrained(rows: List[dict]) -> bool:
+    return all(r["status"] in (GIVEN, CALCULATED) for r in rows)
+
+
+def format_report(rows: List[dict]) -> str:
+    out = []
+    for r in rows:
+        v = "--" if r["value"] is None else _f(r["value"])
+        out.append(f"{r['element']:>2} {r['field']:<7} {v:>10}  {r['status']}")
+    return "\n".join(out)
+
+
+def parse_elements(text: str) -> List[Element]:
+    """Parse conversational element lines, e.g.
+    ``line angle=45 x=10`` / ``arc r=5 cw tangent guess=12,3``."""
+    els = []
+    for raw in text.splitlines():
+        parts = raw.split("#")[0].split()
+        if not parts:
+            continue
+        kind = parts[0].lower()
+        if kind not in ("line", "arc"):
+            raise AGEError(f"Unknown element '{parts[0]}'")
+        el = Element(kind)
+        keys = {"x": "x", "y": "y", "angle": "angle", "a": "angle", "r": "radius",
+                "radius": "radius", "cx": "cx", "cy": "cy", "i": None}
+        for tok in parts[1:]:
+            t = tok.lower()
+            if t in ("cw", "ccw"):
+                el.cw = t == "cw"
+            elif t == "tangent":
+                el.tangent = True
+            elif "=" in t:
+                k, v = t.split("=", 1)
+                try:
+                    if k == "guess":
+                        gx, gy = v.split(",")
+                        el.guess = (float(gx), float(gy))
+                    elif keys.get(k):
+                        setattr(el, keys[k], float(v))
+                    else:
+                        raise KeyError
+                except (ValueError, KeyError):
+                    raise AGEError(f"Bad token '{tok}'")
+            else:
+                raise AGEError(f"Bad token '{tok}'")
+        els.append(el)
+    return els
 
 
 # ---------------------------------------------------------------- G-code

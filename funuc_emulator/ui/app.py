@@ -163,6 +163,11 @@ class App(tk.Tk):
                                  accelerator="F")
         menubar.add_cascade(label="Machine", menu=machine_menu)
 
+        age_menu = tk.Menu(menubar, tearoff=False, bg="#2d2d2d", fg="#ffffff",
+                           activebackground="#094771")
+        age_menu.add_command(label="Solve Profile…", command=self._open_age)
+        menubar.add_cascade(label="A.G.E.", menu=age_menu)
+
         help_menu = tk.Menu(menubar, tearoff=False, bg="#2d2d2d",
                             fg="#ffffff", activebackground="#3d3d3d",
                             activeforeground="#ffffff")
@@ -334,6 +339,10 @@ class App(tk.Tk):
     def _refresh_panels(self) -> None:
         self._coord_panel.update_from(self._machine)
         self._status_panel.update_from(self._machine)
+
+    def _open_age(self) -> None:
+        from .age_dialog import AGEDialog
+        AGEDialog(self)
 
     def _show_about(self) -> None:
         messagebox.showinfo(

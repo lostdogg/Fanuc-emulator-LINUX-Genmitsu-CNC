@@ -69,3 +69,36 @@ def test_transforms():
     assert len(c.repeat_points([(0, 0)], 3, dx=5)) == 3
     path = c.transform_path([("arc", 1, 1, 0, 1, True)], mirror="x")
     assert path[0][5] is False
+
+
+def test_tangent_line_between_two_arcs():
+    # two CCW arcs of same radius: external tangent is parallel to centre line
+    p1, p2 = c.tangent_line_two_arcs((0, 0), 5, False, (20, 0), 5, False)
+    assert close(p1[1], -5) and close(p2[1], -5)
+    els = [c.Element("arc", cx=0, cy=0, radius=5, cw=False),
+           c.Element("line"),
+           c.Element("arc", cx=20, cy=0, radius=5, cw=False, x=20, y=5)]
+    c.solve_profile((5, 0), els, strict=False)
+    assert close(els[1].x, 20) and close(els[1].y, -5)
+
+
+def test_arc_tangent_two_lines():
+    els = [c.Element("line", angle=0), c.Element("arc", radius=2),
+           c.Element("line", angle=90, x=10, y=10)]
+    c.solve_profile((0, 0), els)
+    assert close(els[0].x, 8) and close(els[1].x, 10) and close(els[1].y, 2)
+    assert close(els[1].cx, 8) and close(els[1].cy, 2)
+
+
+def test_chamfer_and_report():
+    assert c.chamfer((10, 0), (0, 0), (0, 10), 2) == ((2.0, 0.0), (0.0, 2.0))
+    els = c.parse_elements("line angle=45\nline angle=-45 x=10 y=0\nline")
+    rows = c.field_report((0, 0), els)
+    assert not c.fully_constrained(rows)
+    assert any(r["status"] == "Calculated" and r["colour"] == "green" for r in rows)
+    assert any(r["status"] == "Not Calculated" for r in rows)
+    els = c.parse_elements("line angle=0 guess=5,0")
+    rows = c.field_report((0, 0), els)
+    assert any(r["status"] == "Guess" for r in rows)
+    with pytest.raises(c.AGEError):
+        c.parse_elements("blob")
