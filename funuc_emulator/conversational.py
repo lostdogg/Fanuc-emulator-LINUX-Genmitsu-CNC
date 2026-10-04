@@ -565,6 +565,103 @@ def profile(start: Point, path, z, tool_dia=0.0, side: Optional[str] = None,
     return out
 
 
+def radial_thinning_factor(ae, tool_dia) -> float:
+    """Return the radial chip-thinning factor for a stepover below 50%."""
+    if tool_dia <= 0:
+        raise AGEError("Tool diameter must be positive")
+    if ae <= 0:
+        raise AGEError("Radial stepover must be positive")
+    ratio = ae / tool_dia
+    if ratio >= 0.5:
+        return 1.0
+    return 2 * math.sqrt(ratio * (1 - ratio))
+
+
+def adaptive_feed_rate(chip_load, flutes, rpm, ae, tool_dia) -> float:
+    """Calculate feed rate with radial chip-thinning compensation."""
+    if chip_load <= 0 or flutes <= 0 or rpm <= 0:
+        raise AGEError("Chip load, flute count, and spindle speed must be positive")
+    return chip_load / radial_thinning_factor(ae, tool_dia) * flutes * rpm
+
+
+def adaptive_rect_pocket(cx, cy, w, h, z, tool_dia, stepover=0.1,
+                         feed=200.0, max_doc=None, safe_z=5.0) -> List[str]:
+    """Generate layered rounded-loop roughing paths for a rectangular pocket.
+
+    ``stepover`` is a fraction of tool diameter and must be below 50%.
+    ``z`` is the final negative depth and ``max_doc`` limits each depth pass.
+    """
+    if w <= 0 or h <= 0 or tool_dia <= 0:
+        raise AGEError("Pocket dimensions and tool diameter must be positive")
+    if not 0 < stepover < 0.5:
+        raise AGEError("Adaptive stepover must be between 0 and 50%")
+    if feed <= 0 or safe_z <= 0:
+        raise AGEError("Feed and safe Z must be positive")
+    if z >= 0:
+        raise AGEError("Pocket depth must be negative")
+    if max_doc is None:
+        max_doc = abs(z)
+    if max_doc <= 0:
+        raise AGEError("Maximum depth of cut must be positive")
+
+    radius = tool_dia / 2
+    max_x, max_y = w / 2 - radius, h / 2 - radius
+    if max_x < 0 or max_y < 0:
+        raise AGEError("Tool too large for pocket")
+
+    step = tool_dia * stepover
+    depths = []
+    depth = -min(max_doc, abs(z))
+    while True:
+        depths.append(depth)
+        if depth <= z + EPS:
+            break
+        depth = max(depth - max_doc, z)
+
+    out: List[str] = []
+    for depth in depths:
+        out += [f"G00 Z{_f(safe_z)}", f"G00 X{_f(cx)} Y{_f(cy)}",
+                f"G01 Z{_f(depth)} F{_f(feed)}"]
+        # Begin at the centre, then expand the rounded loops by no more than
+        # the specified radial engagement until the pocket boundary is reached.
+        out.append(f"G01 X{_f(cx)} Y{_f(cy)} F{_f(feed)}")
+        offset = min(step, max(max_x, max_y))
+        while offset <= max(max_x, max_y) + EPS:
+            half_x = min(offset, max_x)
+            half_y = min(offset, max_y)
+            if half_x > EPS and half_y > EPS:
+                out += _rounded_rect_loop(
+                    cx, cy, half_x, half_y,
+                    min(radius, half_x, half_y), feed,
+                )
+            if half_x >= max_x - EPS and half_y >= max_y - EPS:
+                break
+            offset += step
+        # Ensure both dimensions reach the wall, including unequal pocket sides.
+        if max_x > EPS and max_y > EPS:
+            out += _rounded_rect_loop(
+                cx, cy, max_x, max_y, min(radius, max_x, max_y), feed,
+            )
+        out.append(f"G00 Z{_f(safe_z)}")
+    return out
+
+
+def _rounded_rect_loop(cx, cy, half_x, half_y, corner, feed):
+    x0, x1 = cx - half_x, cx + half_x
+    y0, y1 = cy - half_y, cy + half_y
+    return [
+        f"G01 X{_f(x0 + corner)} Y{_f(y0)} F{_f(feed)}",
+        f"G01 X{_f(x1 - corner)} Y{_f(y0)}",
+        f"G03 X{_f(x1)} Y{_f(y0 + corner)} I0 J{_f(corner)}",
+        f"G01 X{_f(x1)} Y{_f(y1 - corner)}",
+        f"G03 X{_f(x1 - corner)} Y{_f(y1)} I{_f(-corner)} J0",
+        f"G01 X{_f(x0 + corner)} Y{_f(y1)}",
+        f"G03 X{_f(x0)} Y{_f(y1 - corner)} I0 J{_f(-corner)}",
+        f"G01 X{_f(x0)} Y{_f(y0 + corner)}",
+        f"G03 X{_f(x0 + corner)} Y{_f(y0)} I{_f(corner)} J0",
+    ]
+
+
 def rect_pocket(cx, cy, w, h, z, tool_dia, stepover=0.5, feed=200.0,
                 finish_stock=0.1) -> List[str]:
     """Rectangular pocket: concentric roughing rectangles + finish pass."""
