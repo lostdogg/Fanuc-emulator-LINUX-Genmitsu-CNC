@@ -76,12 +76,20 @@ class VoxelStock:
         for segment in segments:
             if segment.motion not in {"rapid", "feed", "arc_cw", "arc_ccw"}:
                 raise SimulationError(f"Unsupported motion type: {segment.motion}")
+            if not segment.arc_points:
+                segment = self._clip_linear_segment(segment, radius, flute_length)
+                if segment is None:
+                    continue
             points = self._segment_points(segment, step)
             for x, y, z in points:
                 sample = (segment.motion, x, y, z)
                 if sample == last_sample:
                     continue
                 last_sample = sample
+                if (x + radius < self.xmin or x - radius > self.xmax or
+                        y + radius < self.ymin or y - radius > self.ymax or
+                        z > self.zmax or z + flute_length < self.zmin):
+                    continue
                 i0 = max(0, math.floor((x - radius - self.xmin) / self.voxel_size))
                 i1 = min(self.nx - 1, math.floor((x + radius - self.xmin) / self.voxel_size))
                 j0 = max(0, math.floor((y - radius - self.ymin) / self.voxel_size))
@@ -128,6 +136,40 @@ class VoxelStock:
                             overflow_contacts.add(column_index)
         return SimulationResult(
             removed, len(rapid_contacts), len(overflow_contacts), self._remaining,
+        )
+
+    def _clip_linear_segment(self, segment: ToolPathSegment, radius: float,
+                             flute_length: float):
+        """Clip a linear move to the stock/tool overlap bounds before sampling."""
+        start, end = segment.start, segment.end
+        if (len(start) != 3 or len(end) != 3 or
+                not all(math.isfinite(value) for value in (*start, *end))):
+            raise SimulationError("Toolpath coordinates must be finite XYZ points")
+        bounds = (
+            (self.xmin - radius, self.xmax + radius),
+            (self.ymin - radius, self.ymax + radius),
+            (self.zmin - flute_length, self.zmax),
+        )
+        enter, leave = 0.0, 1.0
+        for axis, (low, high) in enumerate(bounds):
+            origin = start[axis]
+            delta = end[axis] - origin
+            if abs(delta) < 1e-15:
+                if origin < low or origin > high:
+                    return None
+                continue
+            first, last = (low - origin) / delta, (high - origin) / delta
+            if first > last:
+                first, last = last, first
+            enter, leave = max(enter, first), min(leave, last)
+            if enter > leave:
+                return None
+        clipped_start = tuple(start[i] + (end[i] - start[i]) * enter
+                              for i in range(3))
+        clipped_end = tuple(start[i] + (end[i] - start[i]) * leave
+                            for i in range(3))
+        return ToolPathSegment(
+            segment.motion, clipped_start, clipped_end, segment.arc_points,
         )
 
     def _segment_points(self, segment: ToolPathSegment, max_step: float):

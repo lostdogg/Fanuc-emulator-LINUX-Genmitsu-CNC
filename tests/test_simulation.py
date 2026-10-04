@@ -24,6 +24,15 @@ def test_rapid_contact_is_reported_without_removal():
     assert result.remaining_voxels == 32
 
 
+def test_long_rapid_is_clipped_to_stock_intersection():
+    stock = VoxelStock((-2, 2, -2, 2, 0, 2), 1)
+    result = stock.simulate(
+        [segment("rapid", (-100000, 0, 0), (100000, 0, 0))],
+        tool_dia=2, flute_length=2,
+    )
+    assert result.rapid_collisions > 0
+
+
 def test_flute_overflow_is_reported():
     stock = VoxelStock((-2, 2, -2, 2, 0, 2), 1)
     result = stock.simulate([segment("feed")], tool_dia=2, flute_length=0.5)

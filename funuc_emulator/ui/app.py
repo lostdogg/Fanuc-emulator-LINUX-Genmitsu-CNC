@@ -361,8 +361,13 @@ class App(tk.Tk):
         if not path:
             return
         try:
-            with open(path, "r", encoding="utf-8", errors="strict") as fh:
-                document = cad.parse_dxf(fh.read())
+            try:
+                with open(path, "r", encoding="utf-8-sig") as fh:
+                    source = fh.read()
+            except UnicodeDecodeError:
+                with open(path, "r", encoding="cp1252") as fh:
+                    source = fh.read()
+            document = cad.parse_dxf(source)
             features = cad.extract_features(document)
         except (OSError, UnicodeError, cad.CadError) as exc:
             messagebox.showerror("DXF Import", str(exc), parent=self)

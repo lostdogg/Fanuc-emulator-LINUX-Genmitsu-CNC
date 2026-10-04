@@ -9,6 +9,7 @@ from typing import List, Tuple, Union
 from .parser import parse_program
 
 Point = Tuple[float, float]
+GCODE_HEADER = "G21 G90 G94"
 
 
 class CadError(ValueError):
@@ -85,7 +86,9 @@ def parse_dxf(source: str) -> DxfDocument:
     Coordinates are converted to millimeters when the file declares units.
     Supported entity records are LINE, ARC, CIRCLE, and LWPOLYLINE.
     """
-    lines = source.splitlines()
+    lines = source.lstrip("\ufeff").splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
     if len(lines) % 2:
         raise CadError("DXF must contain complete group-code/value pairs")
     pairs = []
@@ -370,7 +373,7 @@ def features_to_gcode(features: CadFeatures, depth: float, feed: float,
         raise CadError("Depth must be negative; feed and safe Z must be positive")
     from . import conversational
 
-    out = ["G21 G90 G94"]
+    out = [GCODE_HEADER]
     for hole in features.holes:
         out.append(
             f"(DRILL CENTER X{hole.center[0]:g} Y{hole.center[1]:g} "
@@ -395,8 +398,8 @@ def append_gcode_program(existing: str, generated: str) -> str:
     """Insert generated blocks before an existing program-end marker."""
     lines = existing.splitlines()
     generated_lines = generated.splitlines()
-    if existing.strip() and generated_lines and generated_lines[0].strip().upper() == "G21 G90 G94":
-        generated_lines.pop(0)
+    if generated_lines and generated_lines[0].strip().upper() != GCODE_HEADER:
+        generated_lines.insert(0, GCODE_HEADER)
 
     blocks, _ = parse_program(existing)
     end_blocks = [block.line_number for block in blocks

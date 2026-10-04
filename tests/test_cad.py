@@ -30,6 +30,13 @@ def test_parse_ascii_dxf_entities_and_unit_conversion():
     assert doc.entities[2].closed
 
 
+def test_parse_dxf_accepts_bom_and_trailing_blank_lines():
+    source = "\ufeff" + dxf(
+        ("CIRCLE", [(10, 1), (20, 2), (40, 0.5)]),
+    ) + "\n \n"
+    assert isinstance(cad.parse_dxf(source).entities[0], cad.Circle)
+
+
 def test_lwpolyline_bulges_are_tessellated_for_profile_generation():
     source = dxf(
         ("LWPOLYLINE", [(70, 1), (10, 0), (20, 0), (42, 0.41421356237),
@@ -40,6 +47,16 @@ def test_lwpolyline_bulges_are_tessellated_for_profile_generation():
     assert polyline.closed
     assert len(polyline.points) > 4
     assert any(y < 0 for _, y in polyline.points)
+
+
+def test_closed_two_vertex_bulged_polyline_forms_profile():
+    source = dxf(
+        ("LWPOLYLINE", [(70, 1), (10, 0), (20, 0), (42, 1),
+                        (10, 2), (20, 0), (42, -1)]),
+    )
+    features = cad.extract_features(cad.parse_dxf(source))
+    assert len(features.profiles) == 1
+    assert len(features.profiles[0].points) > 10
 
 
 def test_arc_entities_chain_with_lines_into_profile():
@@ -107,5 +124,6 @@ def test_appending_generated_gcode_preserves_program_end_order():
     generated = "G21 G90 G94\nG81 X1 Y2 Z-3 R5 F100\nG80\n"
     combined = cad.append_gcode_program(existing, generated)
     assert combined.index("G81") < combined.index("M30")
-    assert combined.count("G21 G90 G94") == 1
+    assert combined.count("G21 G90 G94") == 2
+    assert combined.rindex("G21 G90 G94") < combined.index("G81")
     assert combined.rstrip().endswith("%")
