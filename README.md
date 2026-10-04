@@ -148,8 +148,47 @@ intersections; `guess` points disambiguate solutions; unsolved elements raise
 Pocket (rect/circular, with finish pass), Profile (G41/G42 cutter comp),
 Conrad corner radiusing, and repeat/rotate/mirror/scale transforms.
 
+Adaptive milling helpers are also available from this module:
+`radial_thinning_factor(ae, tool_dia)` calculates the radial chip-thinning
+factor, `adaptive_feed_rate(chip_load, flutes, rpm, ae, tool_dia)` calculates
+the compensated table feed, and `adaptive_rect_pocket(...)` generates a
+rounded-loop rectangular pocket roughing path with a radial stepover below 50%
+and optional axial depth-per-pass control. Review and verify generated G-code
+against the actual machine, tooling, material, and workholding before machining.
+
 The **A.G.E. > Solve Profile…** menu opens a solver dialog: enter only the known
 values per element (`line angle=0`, `arc r=2 cw`, `guess=x,y`, `tangent`) and
 fields are coloured live – white *Given*, green *Calculated*, orange *Guess*,
 red *Not Calculated*. Supported: line/arc tangency, arc tangent to two lines,
 line tangent to two arcs, line/arc intersections, and chamfer/radius corners.
+
+## CAD import and stock simulation
+
+The **CAD > Import DXF as G-code…** command reads ASCII DXF `LINE`, `ARC`,
+`CIRCLE`, and `LWPOLYLINE` entities. Declared DXF units are converted to
+millimeters; polyline bulges are tessellated, closed boundaries and near-
+connected line chains become profile paths, and circles become drill positions.
+The import asks for a cut depth and feed before placing generated G-code in the
+editor. Inspect and simulate the program before use.
+Profiles that meet at ambiguous branch junctions are skipped by the current
+line-chain recognizer. Generated profile paths follow the CAD boundary at the
+tool center and do not apply cutter-radius compensation; choose tooling/offsets
+accordingly and verify the resulting program before machining.
+
+`funuc_emulator/simulation.py` provides a deterministic CPU voxel-stock
+reference simulator for sampled end-mill paths, reporting removed stock, rapid
+contacts, and flute-length overflows. It is not a machine-verification system:
+it does not model fixtures, toolholders, machine kinematics, surface scallops,
+or interactive 3D rendering. DWG, Parasolid, NURBS, arbitrary 3D CAD/B-rep,
+entity picking, and GPU simulation are not currently supported. DXF layer
+semantics, G54/WCS or part-zero transformations, and bulged polylines'
+tessellated geometry should be reviewed before generating machine code.
+
+`funuc_emulator/surface.py` adds numerical multi-surface path mathematics:
+parametric surface normals, ball/flat/toroidal cutter-center offsets, affine
+WCS transforms, curvature-based scallop/stepover calculations, adaptive
+chord-error subdivision, sampled surface-clearance queries, and sampled
+vertical drop-cutter height. These operations approximate surfaces on finite
+grids and are not certified gouge detection or production CNC verification.
+The helpers are library APIs and are not yet connected to the DXF UI or machine
+simulation.

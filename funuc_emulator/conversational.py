@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 
 Point = Tuple[float, float]
 EPS = 1e-9
+_MAX_ADAPTIVE_PASSES = 10_000
 
 
 class AGEError(ValueError):
@@ -563,6 +564,132 @@ def profile(start: Point, path, z, tool_dia=0.0, side: Optional[str] = None,
             out.append("G40")
         out.append(f"G00 Z{_f(safe_z)}")
     return out
+
+
+def radial_thinning_factor(ae, tool_dia) -> float:
+    """Return the radial chip-thinning factor for a stepover below 50%."""
+    if tool_dia <= 0:
+        raise AGEError("Tool diameter must be positive")
+    if ae <= 0:
+        raise AGEError("Radial stepover must be positive")
+    ratio = ae / tool_dia
+    if ratio >= 0.5:
+        return 1.0
+    return 2 * math.sqrt(ratio * (1 - ratio))
+
+
+def adaptive_feed_rate(chip_load, flutes, rpm, ae, tool_dia) -> float:
+    """Calculate compensated feed from target chip thickness per tooth.
+
+    ``chip_load``, ``ae``, and ``tool_dia`` must use the same distance units.
+    """
+    if chip_load <= 0 or flutes <= 0 or rpm <= 0:
+        raise AGEError("Chip load, flute count, and spindle speed must be positive")
+    return chip_load / radial_thinning_factor(ae, tool_dia) * flutes * rpm
+
+
+def adaptive_rect_pocket(cx, cy, w, h, z, tool_dia, stepover=0.1,
+                         feed=200.0, max_doc=None, safe_z=5.0,
+                         ramp_angle=3.0) -> List[str]:
+    """Generate layered rounded-loop roughing paths for a rectangular pocket.
+
+    ``stepover`` is a fraction of tool diameter and must be below 50%.
+    ``z`` is the final negative depth, ``max_doc`` limits each depth pass,
+    and ``ramp_angle`` limits the helical entry angle in degrees.
+    """
+    if not all(math.isfinite(v) for v in (
+            cx, cy, w, h, z, tool_dia, stepover, feed, safe_z, ramp_angle)):
+        raise AGEError("Pocket parameters must be finite")
+    if w <= 0 or h <= 0 or tool_dia <= 0:
+        raise AGEError("Pocket dimensions and tool diameter must be positive")
+    if not 0 < stepover < 0.5:
+        raise AGEError("Adaptive stepover must be between 0 and 50%")
+    if feed <= 0 or safe_z <= 0:
+        raise AGEError("Feed and safe Z must be positive")
+    if not 0 < ramp_angle < 90:
+        raise AGEError("Helical ramp angle must be between 0 and 90 degrees")
+    if z >= 0:
+        raise AGEError("Pocket depth must be negative")
+    if max_doc is None:
+        max_doc = abs(z)
+    if not math.isfinite(max_doc) or max_doc <= 0:
+        raise AGEError("Maximum depth of cut must be positive and finite")
+    pass_count = abs(z) / max_doc
+    if not math.isfinite(pass_count) or pass_count > _MAX_ADAPTIVE_PASSES:
+        raise AGEError("Adaptive pocket exceeds the maximum depth-pass count")
+
+    radius = tool_dia / 2
+    max_x, max_y = w / 2 - radius, h / 2 - radius
+    if max_x < 0 or max_y < 0:
+        raise AGEError("Tool too large for pocket")
+    if max_x <= EPS or max_y <= EPS:
+        raise AGEError("Pocket has no room for a helical adaptive entry")
+
+    step = tool_dia * stepover
+    entry_radius = min(step, max_x, max_y)
+    depths = []
+    depth = -min(max_doc, abs(z))
+    while True:
+        depths.append(depth)
+        if depth <= z + EPS:
+            break
+        depth = max(depth - max_doc, z)
+
+    entry_y = cy - entry_radius
+    out: List[str] = [
+        f"G00 Z{_f(safe_z)}",
+        f"G00 X{_f(cx)} Y{_f(entry_y)}",
+        "G00 Z0",
+    ]
+    previous_depth = 0.0
+    max_ramp_drop = (2 * math.pi * entry_radius *
+                     math.tan(math.radians(ramp_angle)))
+    if not math.isfinite(max_ramp_drop) or max_ramp_drop <= 0:
+        raise AGEError("Helical ramp settings produce an invalid depth increment")
+    for depth in depths:
+        required_turns = (previous_depth - depth) / max_ramp_drop
+        if not math.isfinite(required_turns) or required_turns > _MAX_ADAPTIVE_PASSES:
+            raise AGEError("Helical entry exceeds the maximum turn count")
+        turns = max(1, math.ceil(required_turns))
+        for turn in range(1, turns + 1):
+            ramp_z = previous_depth + (depth - previous_depth) * turn / turns
+            out.append(
+                f"G03 X{_f(cx)} Y{_f(entry_y)} Z{_f(ramp_z)} "
+                f"I0 J{_f(entry_radius)} F{_f(feed)}"
+            )
+        offset = entry_radius
+        offset_x = offset_y = offset
+        while True:
+            half_x = min(offset_x, max_x)
+            half_y = min(offset_y, max_y)
+            if half_x > EPS and half_y > EPS:
+                out += _rounded_rect_loop(
+                    cx, cy, half_x, half_y,
+                    min(radius, half_x, half_y), feed,
+                )
+            if half_x >= max_x - EPS and half_y >= max_y - EPS:
+                break
+            offset_x = min(offset_x + step, max_x)
+            offset_y = min(offset_y + step, max_y)
+        previous_depth = depth
+    out.append(f"G00 Z{_f(safe_z)}")
+    return out
+
+
+def _rounded_rect_loop(cx, cy, half_x, half_y, corner, feed):
+    x0, x1 = cx - half_x, cx + half_x
+    y0, y1 = cy - half_y, cy + half_y
+    return [
+        f"G01 X{_f(x0 + corner)} Y{_f(y0)} F{_f(feed)}",
+        f"G01 X{_f(x1 - corner)} Y{_f(y0)}",
+        f"G03 X{_f(x1)} Y{_f(y0 + corner)} I0 J{_f(corner)}",
+        f"G01 X{_f(x1)} Y{_f(y1 - corner)}",
+        f"G03 X{_f(x1 - corner)} Y{_f(y1)} I{_f(-corner)} J0",
+        f"G01 X{_f(x0 + corner)} Y{_f(y1)}",
+        f"G03 X{_f(x0)} Y{_f(y1 - corner)} I0 J{_f(-corner)}",
+        f"G01 X{_f(x0)} Y{_f(y0 + corner)}",
+        f"G03 X{_f(x0 + corner)} Y{_f(y0)} I{_f(corner)} J0",
+    ]
 
 
 def rect_pocket(cx, cy, w, h, z, tool_dia, stepover=0.5, feed=200.0,

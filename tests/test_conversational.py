@@ -62,6 +62,48 @@ def test_pockets():
         c.rect_pocket(0, 0, 4, 4, -1, 6)
 
 
+def test_radial_chip_thinning_feed_compensation():
+    assert close(c.radial_thinning_factor(0.05, 0.5), 0.6)
+    assert close(c.adaptive_feed_rate(0.003, 4, 6000, 0.05, 0.5), 120)
+    assert close(c.adaptive_feed_rate(0.003, 4, 6000, 0.1, 0.5), 90)
+    assert c.radial_thinning_factor(0.25, 0.5) == 1
+    assert c.radial_thinning_factor(0.3, 0.5) == 1
+    for args in ((0, 0.5), (0.1, 0), (-0.1, 0.5)):
+        with pytest.raises(c.AGEError):
+            c.radial_thinning_factor(*args)
+    with pytest.raises(c.AGEError):
+        c.adaptive_feed_rate(0.003, 0, 6000, 0.05, 0.5)
+
+
+def test_adaptive_rect_pocket_layers_and_validation():
+    g = c.adaptive_rect_pocket(0, 0, 20, 16, -5, 4, stepover=0.1,
+                               feed=120, max_doc=2)
+    ramp_lines = [line for line in g if line.startswith("G03 X0 Y-0.4 Z")]
+    ramp_depths = [
+        float(next(word[1:] for word in line.split() if word.startswith("Z")))
+        for line in ramp_lines
+    ]
+    assert len(ramp_lines) > 3
+    assert all(a > b for a, b in zip([0.0] + ramp_depths, ramp_depths))
+    max_ramp_drop = 2 * math.pi * 0.4 * math.tan(math.radians(3)) + 0.0001
+    assert max(a - b for a, b in zip([0.0] + ramp_depths, ramp_depths)) <= max_ramp_drop
+    assert "G00 Z0" in g[:g.index(ramp_lines[0])]
+    assert sum(line.startswith("G03") for line in g) > 3
+    assert g[-1] == "G00 Z5"
+    with pytest.raises(c.AGEError):
+        c.adaptive_rect_pocket(0, 0, 20, 16, -5, 4, stepover=0.5)
+    with pytest.raises(c.AGEError):
+        c.adaptive_rect_pocket(0, 0, 3, 16, -5, 4)
+    with pytest.raises(c.AGEError):
+        c.adaptive_rect_pocket(0, 0, 4, 16, -5, 4)
+    with pytest.raises(c.AGEError):
+        c.adaptive_rect_pocket(0, 0, 20, 16, -5, 4, ramp_angle=0)
+    with pytest.raises(c.AGEError):
+        c.adaptive_rect_pocket(0, 0, 20, 16, -1, 4, ramp_angle=1e-10)
+    with pytest.raises(c.AGEError):
+        c.adaptive_rect_pocket(0, 0, 20, 16, -1, 4, max_doc=1e-5)
+
+
 def test_transforms():
     p = c.transform_points([(1, 0)], rotate=90)
     assert close(p[0][0], 0) and close(p[0][1], 1)
