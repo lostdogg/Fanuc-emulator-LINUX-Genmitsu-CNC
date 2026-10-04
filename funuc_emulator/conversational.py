@@ -625,8 +625,15 @@ def adaptive_rect_pocket(cx, cy, w, h, z, tool_dia, stepover=0.1,
         # Begin at the centre, then expand the rounded loops by no more than
         # the specified radial engagement until the pocket boundary is reached.
         out.append(f"G01 X{_f(cx)} Y{_f(cy)} F{_f(feed)}")
+        if max_x <= EPS or max_y <= EPS:
+            end = (cx, cy + max_y) if max_x <= EPS else (cx + max_x, cy)
+            out.append(f"G01 X{_f(end[0])} Y{_f(end[1])} F{_f(feed)}")
+            end = (cx, cy - max_y) if max_x <= EPS else (cx - max_x, cy)
+            out.append(f"G01 X{_f(end[0])} Y{_f(end[1])}")
+            out.append(f"G00 Z{_f(safe_z)}")
+            continue
         offset = min(step, max(max_x, max_y))
-        while offset <= max(max_x, max_y) + EPS:
+        while True:
             half_x = min(offset, max_x)
             half_y = min(offset, max_y)
             if half_x > EPS and half_y > EPS:
@@ -636,12 +643,7 @@ def adaptive_rect_pocket(cx, cy, w, h, z, tool_dia, stepover=0.1,
                 )
             if half_x >= max_x - EPS and half_y >= max_y - EPS:
                 break
-            offset += step
-        # Ensure both dimensions reach the wall, including unequal pocket sides.
-        if max_x > EPS and max_y > EPS:
-            out += _rounded_rect_loop(
-                cx, cy, max_x, max_y, min(radius, max_x, max_y), feed,
-            )
+            offset = min(offset + step, max(max_x, max_y))
         out.append(f"G00 Z{_f(safe_z)}")
     return out
 
