@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Optional
 
-from .. import cad
+from .. import cad, conversational
 from ..machine import Machine
 from .canvas import ToolPathCanvas
 from .panels import CoordinatePanel, MessageLog, StatusPanel
@@ -400,7 +400,7 @@ class App(tk.Tk):
             return
         try:
             program = "\n".join(cad.features_to_gcode(features, depth, feed)) + "\n"
-        except ValueError as exc:
+        except (ValueError, conversational.AGEError) as exc:
             messagebox.showerror("DXF Import", str(exc), parent=self)
             return
         if messagebox.askyesno(

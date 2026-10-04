@@ -72,11 +72,16 @@ class VoxelStock:
         overflow_contacts = set()
         radius = tool_dia / 2
         step = self.voxel_size / 2
+        last_sample = None
         for segment in segments:
             if segment.motion not in {"rapid", "feed", "arc_cw", "arc_ccw"}:
                 raise SimulationError(f"Unsupported motion type: {segment.motion}")
             points = self._segment_points(segment, step)
             for x, y, z in points:
+                sample = (segment.motion, x, y, z)
+                if sample == last_sample:
+                    continue
+                last_sample = sample
                 i0 = max(0, math.floor((x - radius - self.xmin) / self.voxel_size))
                 i1 = min(self.nx - 1, math.floor((x + radius - self.xmin) / self.voxel_size))
                 j0 = max(0, math.floor((y - radius - self.ymin) / self.voxel_size))
@@ -88,6 +93,8 @@ class VoxelStock:
                     self.nz - 1,
                     math.floor((z + flute_length - self.zmin) / self.voxel_size - 0.5),
                 )
+                if k0 > k1:
+                    continue
                 for i in range(i0, i1 + 1):
                     vx = self.xmin + (i + 0.5) * self.voxel_size
                     for j in range(j0, j1 + 1):
@@ -95,7 +102,10 @@ class VoxelStock:
                         if (vx - x) ** 2 + (vy - y) ** 2 > radius ** 2:
                             continue
                         column_index = i * self.ny + j
-                        for k in range(k0, k1 + 1):
+                        column_top = self._column_tops[column_index]
+                        if column_top < k0:
+                            continue
+                        for k in range(k0, min(k1, column_top) + 1):
                             voxel_index = (i * self.ny + j) * self.nz + k
                             if not self._stock[voxel_index]:
                                 continue
@@ -112,7 +122,7 @@ class VoxelStock:
                                     top -= 1
                                 self._column_tops[column_index] = top
                         if (segment.motion != "rapid" and
-                                self._column_tops[column_index] > k1):
+                                column_top > k1):
                             overflow_contacts.add(column_index)
         return SimulationResult(
             removed, len(rapid_contacts), len(overflow_contacts), self._remaining,
